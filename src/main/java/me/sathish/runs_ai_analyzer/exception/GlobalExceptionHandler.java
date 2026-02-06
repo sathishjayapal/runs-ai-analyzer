@@ -32,9 +32,9 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
-    @ExceptionHandler(OpenAiAnalysisException.class)
-    public ProblemDetail handleOpenAiException(OpenAiAnalysisException ex) {
-        log.error("OpenAI analysis error: {}", ex.getMessage(), ex);
+    @ExceptionHandler(AiAnalysisException.class)
+    public ProblemDetail handleAiAnalysisException(AiAnalysisException ex) {
+        log.error("AI analysis error: {}", ex.getMessage(), ex);
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
                 HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());

@@ -1,15 +1,15 @@
 # Runs AI Analyzer
 
-A Spring Boot microservice that analyzes Garmin running data using OpenAI to provide AI-powered insights and recommendations.
+A Spring Boot microservice that analyzes Garmin running data using Anthropic Claude to provide AI-powered insights and recommendations.
 
 ## Overview
 
-This microservice complements the `runs-app` project by providing intelligent analysis of running activities. It accepts Garmin run data, determines if the data contains running activities, and uses OpenAI's GPT-4 to generate personalized training insights.
+This microservice complements the `runs-app` project by providing intelligent analysis of running activities. It accepts Garmin run data, determines if the data contains running activities, and uses Anthropic Claude to generate personalized training insights.
 
 ## Features
 
 - **Run Detection**: Identifies running activities from mixed Garmin data
-- **AI Analysis**: Leverages OpenAI GPT-4o for intelligent performance analysis
+- **AI Analysis**: Leverages Anthropic Claude for intelligent performance analysis
 - **Performance Metrics**: Calculates total distance, duration, pace, and more
 - **Training Insights**: Provides actionable recommendations for improvement
 - **RESTful API**: Clean API with OpenAPI/Swagger documentation
@@ -18,7 +18,7 @@ This microservice complements the `runs-app` project by providing intelligent an
 
 - **Java 21**
 - **Spring Boot 4.0.1**
-- **Spring AI** (OpenAI integration)
+- **Spring AI** (Anthropic Claude integration)
 - **SpringDoc OpenAPI 3.0**
 - **Lombok**
 
@@ -26,14 +26,14 @@ This microservice complements the `runs-app` project by providing intelligent an
 
 - JDK 21+
 - Maven 3.9+
-- OpenAI API Key
+- Anthropic API Key
 
 ## Configuration
 
-Set your OpenAI API key as an environment variable:
+Set your Anthropic API key as an environment variable:
 
 ```bash
-export OPENAI_API_KEY=your-api-key-here
+export ANTHROPIC_API_KEY=your-api-key-here
 ```
 
 Or configure in `application.yaml`:
@@ -41,8 +41,8 @@ Or configure in `application.yaml`:
 ```yaml
 spring:
   ai:
-    openai:
-      api-key: ${OPENAI_API_KEY:your-api-key-here}
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:your-api-key-here}
 ```
 
 ## Running the Application

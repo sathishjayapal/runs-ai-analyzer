@@ -28,7 +28,7 @@ public class RunAnalysisController {
     @PostMapping("/analyze")
     @Operation(
             summary = "Analyze Garmin run data",
-            description = "Submits Garmin run data for AI-powered analysis using OpenAI"
+            description = "Submits Garmin run data for AI-powered analysis using Anthropic Claude"
     )
     @ApiResponse(responseCode = "200", description = "Analysis completed successfully")
     @ApiResponse(responseCode = "400", description = "Invalid request data")

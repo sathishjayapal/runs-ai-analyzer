@@ -82,7 +82,7 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
                 .call()
                 .content();
 
-        log.debug("OpenAI analysis response received");
+        log.debug("Claude analysis response received");
         return response;
     }
 

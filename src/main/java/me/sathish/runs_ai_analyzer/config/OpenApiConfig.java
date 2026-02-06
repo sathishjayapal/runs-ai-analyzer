@@ -16,7 +16,7 @@ public class OpenApiConfig {
                 .info(new Info()
                         .title("Runs AI Analyzer API")
                         .version("1.0.0")
-                        .description("Microservice for AI-powered analysis of Garmin running data using OpenAI")
+                        .description("Microservice for AI-powered analysis of Garmin running data using Anthropic Claude")
                         .contact(new Contact()
                                 .name("Sathish")
                                 .email("sathish@example.com"))
