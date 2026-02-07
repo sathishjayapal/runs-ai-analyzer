@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      - POSTGRES_DB=runs-ai-analyzer
+      - POSTGRES_USER=
+      - POSTGRES_PASSWORD=
+    ports:
+      - 5444:5432
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - 11434:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Run this after ollama starts to pull the embedding model
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["ollama", "pull", "nomic-embed-text"]
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    restart: "no"
+
+#  runs-ai-analyzer:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#    ports:
+#      - 8081:8081
+#    environment:
+#      - RAG_RUNS_AI_JDBC_DATABASE_URL=jdbc:postgresql://postgres:5432/runs-ai-analyzer
+#      - JDBC_DATABASE_USERNAME=
+#      - JDBC_DATABASE_PASSWORD=
+#      - OLLAMA_BASE_URL=http://ollama:11434
+#      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
+#      ollama:
+#        condition: service_healthy
+
+volumes:
+  pgvector_data:
+  ollama_data:
