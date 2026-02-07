@@ -28,14 +28,18 @@ public class RunAnalysisController {
     @PostMapping("/analyze")
     @Operation(
             summary = "Analyze Garmin run data",
-            description = "Submits Garmin run data for AI-powered analysis using Anthropic Claude"
+            description = "Submits Garmin run data for AI-powered analysis using Anthropic Claude. " +
+                    "Set forceRefresh=true to bypass RAG cache and get fresh LLM analysis."
     )
     @ApiResponse(responseCode = "200", description = "Analysis completed successfully")
     @ApiResponse(responseCode = "400", description = "Invalid request data")
     public ResponseEntity<RunAnalysisResponse> analyzeRuns(
             @Valid @RequestBody RunAnalysisRequest request) {
-        log.info("Received analysis request for {} run(s)", request.getRuns().size());
-        RunAnalysisResponse response = runAnalysisService.analyzeRuns(request.getRuns());
+        log.info("Received analysis request for {} run(s), forceRefresh: {}", 
+                request.getRuns().size(), request.isForceRefresh());
+        RunAnalysisResponse response = runAnalysisService.analyzeRuns(
+                request.getRuns(), request.isForceRefresh());
+
         return ResponseEntity.ok(response);
     }
 

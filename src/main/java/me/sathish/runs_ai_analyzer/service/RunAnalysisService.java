@@ -9,5 +9,7 @@ public interface RunAnalysisService {
 
     RunAnalysisResponse analyzeRuns(List<GarminRunDataDTO> runs);
 
+    RunAnalysisResponse analyzeRuns(List<GarminRunDataDTO> runs, boolean forceRefresh);
+
     boolean containsRunData(List<GarminRunDataDTO> runs);
 }

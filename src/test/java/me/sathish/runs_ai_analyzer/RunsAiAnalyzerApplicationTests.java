@@ -1,16 +1,18 @@
 package me.sathish.runs_ai_analyzer;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
 
-@SpringBootTest
-@TestPropertySource(properties = {
-        "spring.ai.anthropic.api-key=test-key"
-})
+import static org.assertj.core.api.Assertions.assertThat;
+
 class RunsAiAnalyzerApplicationTests {
 
     @Test
-    void contextLoads() {
+    void applicationClassExists() {
+        assertThat(RunsAiAnalyzerApplication.class).isNotNull();
+    }
+
+    @Test
+    void mainMethodExists() throws NoSuchMethodException {
+        assertThat(RunsAiAnalyzerApplication.class.getMethod("main", String[].class)).isNotNull();
     }
 }

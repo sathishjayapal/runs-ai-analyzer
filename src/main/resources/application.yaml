@@ -4,6 +4,29 @@ server:
 spring:
   application:
     name: runs-ai-analyzer
+  datasource:
+    url: ${RAG_RUNS_AI_JDBC_DATABASE_URL:jdbc:postgresql://localhost:5444/runs-ai-analyzer}
+    username: ${JDBC_DATABASE_USERNAME:postgres}
+    password: ${JDBC_DATABASE_PASSWORD:P4ssword!}
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          lob:
+            non_contextual_creation: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+  docker:
+    compose:
+      lifecycle-management: start-only
   ai:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:your-api-key-here}
@@ -11,6 +34,20 @@ spring:
         options:
           model: claude-sonnet-4-5-20250929
           temperature: 0.7
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        enabled: false
+      embedding:
+        enabled: true
+        options:
+          model: nomic-embed-text
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 768
 
 management:
   endpoints:
@@ -26,6 +63,12 @@ springdoc:
     path: /api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+rag:
+  cache:
+    enabled: true
+    similarity-threshold: 0.85
+    ttl-days: 7
 
 logging:
   level:

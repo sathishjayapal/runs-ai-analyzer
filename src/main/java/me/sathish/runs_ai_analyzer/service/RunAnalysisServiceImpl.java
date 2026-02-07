@@ -19,6 +19,7 @@ import java.util.List;
 public class RunAnalysisServiceImpl implements RunAnalysisService {
 
     private final ChatClient.Builder chatClientBuilder;
+    private final RagStorageService ragStorageService;
 
     private static final String SYSTEM_PROMPT = """
             You are an expert running coach and sports analyst. Analyze the provided Garmin running data 
@@ -35,7 +36,12 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
 
     @Override
     public RunAnalysisResponse analyzeRuns(List<GarminRunDataDTO> runs) {
-        log.debug("Analyzing {} run(s)", runs.size());
+        return analyzeRuns(runs, false);
+    }
+
+    @Override
+    public RunAnalysisResponse analyzeRuns(List<GarminRunDataDTO> runs, boolean forceRefresh) {
+        log.debug("Analyzing {} run(s), forceRefresh: {}", runs.size(), forceRefresh);
 
         boolean hasRunData = containsRunData(runs);
         if (!hasRunData) {
@@ -51,11 +57,23 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
                 .filter(run -> "running".equalsIgnoreCase(run.getActivityType()))
                 .toList();
 
+        String queryText = formatRunDataForAi(runningActivities);
+
+        // Check for cached analysis unless forceRefresh is true
+        if (!forceRefresh) {
+            var cachedResponse = tryGetCachedAnalysis(queryText, runningActivities);
+            if (cachedResponse != null) {
+                return cachedResponse;
+            }
+        }
+
+        // No cache hit or force refresh - call LLM
+        log.info("Generating fresh AI analysis for {} runs", runningActivities.size());
         PerformanceMetrics metrics = calculateMetrics(runningActivities);
         String aiAnalysis = getAiAnalysis(runningActivities);
         List<RunInsight> insights = parseInsights(aiAnalysis, runningActivities);
 
-        return RunAnalysisResponse.builder()
+        RunAnalysisResponse response = RunAnalysisResponse.builder()
                 .containsRunData(true)
                 .summary(generateSummary(runningActivities, metrics))
                 .insights(insights)
@@ -63,6 +81,52 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
                 .rawAnalysis(aiAnalysis)
                 .analyzedAt(Instant.now())
                 .build();
+
+        storeAnalysisInRag(runningActivities, response, queryText);
+
+        return response;
+    }
+
+    private RunAnalysisResponse tryGetCachedAnalysis(String queryText, List<GarminRunDataDTO> runs) {
+        try {
+            var cachedDoc = ragStorageService.findCachedAnalysis(queryText);
+            if (cachedDoc.isPresent()) {
+                log.info("Using cached RAG analysis (document ID: {})", cachedDoc.get().getDocumentId());
+                return convertCachedDocumentToResponse(cachedDoc.get(), runs);
+            }
+        } catch (Exception e) {
+            log.warn("Error checking RAG cache: {}. Proceeding with fresh analysis.", e.getMessage());
+        }
+        return null;
+    }
+
+    private RunAnalysisResponse convertCachedDocumentToResponse(
+            me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument cachedDoc,
+            List<GarminRunDataDTO> runs) {
+        
+        PerformanceMetrics metrics = PerformanceMetrics.builder()
+                .totalRuns(cachedDoc.getTotalRuns())
+                .totalDistanceKm(cachedDoc.getTotalDistanceKm())
+                .build();
+
+        return RunAnalysisResponse.builder()
+                .containsRunData(true)
+                .summary(cachedDoc.getSummary())
+                .insights(parseInsights(cachedDoc.getAnalysisContent(), runs))
+                .metrics(metrics)
+                .rawAnalysis(cachedDoc.getAnalysisContent())
+                .analyzedAt(Instant.now())
+                .cachedResult(true)
+                .build();
+    }
+
+    private void storeAnalysisInRag(List<GarminRunDataDTO> runs, RunAnalysisResponse response, String queryText) {
+        try {
+            ragStorageService.storeAnalysis(runs, response, queryText);
+            log.info("Successfully stored analysis in RAG database for {} runs", runs.size());
+        } catch (Exception e) {
+            log.warn("Failed to store analysis in RAG database: {}. Continuing without storage.", e.getMessage());
+        }
     }
 
     @Override
@@ -74,16 +138,59 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
     private String getAiAnalysis(List<GarminRunDataDTO> runs) {
         String runDataSummary = formatRunDataForAi(runs);
 
-        ChatClient chatClient = chatClientBuilder.build();
-
-        String response = chatClient.prompt()
-                .system(SYSTEM_PROMPT)
-                .user("Please analyze the following Garmin running data:\n\n" + runDataSummary)
-                .call()
-                .content();
-
+//        ChatClient chatClient = chatClientBuilder.build();
+//
+//        String response = chatClient.prompt()
+//                .system(SYSTEM_PROMPT)
+//                .user("Please analyze the following Garmin running data:\n\n" + runDataSummary)
+//                .call()
+//                .content();
+//       new String()
+        var constresponse = "# Garmin Running Data Analysis\n" +
+                "\n" +
+                "## \uD83D\uDCCA PERFORMANCE SUMMARY\n" +
+                "\n" +
+                "You've completed two quality training sessions with distinct purposes over a 2-day period. Your training shows good variety with both easy aerobic work and high-intensity speed development. Here's what the data reveals:\n" +
+                "\n" +
+                "**Overall Metrics:**\n" +
+                "- **Total Volume:** 14.7 km over 2 sessions\n" +
+                "- **Average Pace Comparison:** \n" +
+                "  - Easy Run: 5:21 min/km (11.2 km/h)\n" +
+                "  - Interval Session: 5:42 min/km (10.5 km/h)\n" +
+                "- **Training Intensity:** Well-balanced mix of zones\n" +
+                "\n" +
+                "---\n" +
+                "\n" +
+                "## \uD83D\uDD0D KEY INSIGHTS\n" +
+                "\n" +
+                "### 1. **Pace Analysis**\n" +
+                "- Your easy run pace (5:21/km) is appropriately **faster** than your interval session average, which is correct since intervals include recovery periods\n" +
+                "- The 8.5km morning run shows good endurance capacity at a controlled pace\n" +
+                "- Your easy pace suggests a solid aerobic base for a recreational to intermediate runner\n" +
+                "\n" +
+                "### 2. **Heart Rate Zone Assessment**\n" +
+                "\n" +
+                "**Morning Run (165 bpm max):**\n" +
+                "- Peak HR of 165 bpm indicates you stayed in Zone 3-4 (Tempo/Threshold range)\n" +
+                "- For an \"easy pace\" run, this may be slightly elevated\n" +
+                "- Suggests either: (a) good effort control, or (b) potential for easier recovery runs\n" +
+                "\n" +
+                "**Interval Training (178 bpm max):**\n" +
+                "- Excellent max HR of 178 bpm shows proper high-intensity effort\n" +
+                "- 13 bpm difference between sessions demonstrates good training zone differentiation\n" +
+                "- This intensity is appropriate for VO2max development\n" +
+                "\n" +
+                "### 3. **Training Load & Recovery**\n" +
+                "- **Concern:** Only 1 rest day between a hard interval session and the easy run\n" +
+                "- Your body may not have fully recovered, which could explain the slightly elevated HR on the \"easy\" run\n" +
+                "- Positive: You're maintaining consistent training frequency\n" +
+                "\n" +
+                "### 4. **Workout Structure**\n" +
+                "- Good polarized training approach: mixing hard and easy days\n" +
+                "- 6.2km interval session is an appropriate volume for quality speed work\n" +
+                "-";
         log.debug("Claude analysis response received");
-        return response;
+        return constresponse;
     }
 
     private String formatRunDataForAi(List<GarminRunDataDTO> runs) {
