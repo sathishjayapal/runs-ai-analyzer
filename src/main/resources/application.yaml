@@ -6,8 +6,8 @@ spring:
     name: runs-ai-analyzer
   datasource:
     url: ${RAG_RUNS_AI_JDBC_DATABASE_URL:jdbc:postgresql://localhost:5444/runs-ai-analyzer}
-    username: ${JDBC_DATABASE_USERNAME:postgres}
-    password: ${JDBC_DATABASE_PASSWORD:P4ssword!}
+    username: ${JDBC_DATABASE_USERNAME}
+    password: ${JDBC_DATABASE_PASSWORD}
     hikari:
       connection-timeout: 30000
       maximum-pool-size: 10
