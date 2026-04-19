@@ -1,13 +1,17 @@
 server:
-  port: 8081
+  port: ${SERVER_PORT:8081}
 
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: runs-ai-analyzer
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
   datasource:
-    url: ${RAG_RUNS_AI_JDBC_DATABASE_URL:jdbc:postgresql://localhost:5444/runs-ai-analyzer}
-    username: ${JDBC_DATABASE_USERNAME}
-    password: ${JDBC_DATABASE_PASSWORD}
+    url: ${RUNS_AI_ANALYZER_DB_URL:${RAG_RUNS_AI_JDBC_DATABASE_URL:jdbc:postgresql://localhost:5444/runs-ai-analyzer}}
+    username: ${JDBC_DATABASE_USERNAME:postgres}
+    password: ${JDBC_DATABASE_PASSWORD:P4ssword!}
     hikari:
       connection-timeout: 30000
       maximum-pool-size: 10
@@ -26,14 +30,20 @@ spring:
     locations: classpath:db/migration
   docker:
     compose:
-      lifecycle-management: start-only
+      enabled: false
+      lifecycle-management: none
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
   ai:
     anthropic:
-      api-key: ${ANTHROPIC_API_KEY:your-api-key-here}
+      api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
-          model: claude-sonnet-4-5-20250929
-          temperature: 0.7
+          model: ${ANTHROPIC_CHAT_MODEL:claude-sonnet-4-5-20250929}
+          temperature: ${ANTHROPIC_CHAT_TEMPERATURE:0.3}
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
       chat:
@@ -41,7 +51,7 @@ spring:
       embedding:
         enabled: true
         options:
-          model: nomic-embed-text
+          model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
     vectorstore:
       pgvector:
         initialize-schema: true
@@ -53,7 +63,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,env,configprops
   endpoint:
     health:
       show-details: always
@@ -66,11 +76,11 @@ springdoc:
 
 rag:
   cache:
-    enabled: true
-    similarity-threshold: 0.85
-    ttl-days: 7
+    enabled: ${RAG_CACHE_ENABLED:true}
+    similarity-threshold: ${RAG_CACHE_SIMILARITY_THRESHOLD:0.85}
+    ttl-days: ${RAG_CACHE_TTL_DAYS:7}
 
 logging:
   level:
     me.sathish.runs_ai_analyzer: DEBUG
-    org.springframework.ai: DEBUG
+    org.springframework.ai: INFO

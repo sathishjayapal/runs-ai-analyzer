@@ -12,6 +12,9 @@ spring:
         dialect: org.hibernate.dialect.H2Dialect
   flyway:
     enabled: false
+  cloud:
+    config:
+      enabled: false
   ai:
     anthropic:
       api-key: test-key

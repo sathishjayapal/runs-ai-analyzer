@@ -1,5 +1,6 @@
 package me.sathish.runs_ai_analyzer.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import me.sathish.runs_ai_analyzer.config.RagCacheProperties;
@@ -14,7 +15,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -25,6 +31,7 @@ public class RagStorageServiceImpl implements RagStorageService {
     private final RunAnalysisDocumentRepository documentRepository;
     private final VectorStore vectorStore;
     private final RagCacheProperties cacheProperties;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -87,6 +94,9 @@ public class RagStorageServiceImpl implements RagStorageService {
         // The query text contains the run data that will be searched for
         StringBuilder content = new StringBuilder();
         content.append(document.getQueryText()).append("\n\n");
+        if (document.getSummary() != null) {
+            content.append("Summary: ").append(document.getSummary()).append("\n");
+        }
         content.append("Total Runs: ").append(document.getTotalRuns()).append("\n");
         if (document.getTotalDistanceKm() != null) {
             content.append("Total Distance: ").append(document.getTotalDistanceKm()).append(" km\n");
@@ -100,12 +110,21 @@ public class RagStorageServiceImpl implements RagStorageService {
         metadata.put("runCount", runs.size());
 
         if (response.getMetrics() != null) {
+            metadata.put("totalRuns", response.getMetrics().getTotalRuns());
             metadata.put("totalDistanceKm", response.getMetrics().getTotalDistanceKm());
             metadata.put("totalDuration", response.getMetrics().getTotalDuration());
             metadata.put("averagePace", response.getMetrics().getAveragePaceMinPerKm());
             metadata.put("averageHeartRate", response.getMetrics().getAverageHeartRate());
             metadata.put("totalCalories", response.getMetrics().getTotalCalories());
         }
+
+        metadata.put("structuredSummary", response.getSummary());
+        metadata.put("recommendations", defaultList(response.getRecommendations()));
+        metadata.put("riskFlags", defaultList(response.getRiskFlags()));
+        metadata.put("confidenceScore", response.getConfidenceScore());
+        metadata.put("insights", objectMapper.convertValue(
+                response.getInsights() != null ? response.getInsights() : List.of(),
+                objectMapper.getTypeFactory().constructCollectionType(List.class, Map.class)));
 
         List<String> activityDates = runs.stream()
                 .map(GarminRunDataDTO::getActivityDate)
@@ -117,6 +136,10 @@ public class RagStorageServiceImpl implements RagStorageService {
         }
 
         return metadata;
+    }
+
+    private List<String> defaultList(List<String> value) {
+        return value != null ? value : List.of();
     }
 
     @Override

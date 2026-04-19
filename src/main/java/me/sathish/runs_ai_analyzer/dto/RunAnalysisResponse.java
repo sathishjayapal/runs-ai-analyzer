@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Data
 @Builder
@@ -14,9 +15,13 @@ import java.util.List;
 @AllArgsConstructor
 public class RunAnalysisResponse {
 
+    private UUID documentId;
     private boolean containsRunData;
     private String summary;
     private List<RunInsight> insights;
+    private List<String> recommendations;
+    private List<String> riskFlags;
+    private Integer confidenceScore;
     private PerformanceMetrics metrics;
     private String rawAnalysis;
     private Instant analyzedAt;

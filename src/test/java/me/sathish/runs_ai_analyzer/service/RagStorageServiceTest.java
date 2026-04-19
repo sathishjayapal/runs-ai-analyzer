@@ -1,5 +1,6 @@
 package me.sathish.runs_ai_analyzer.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import me.sathish.runs_ai_analyzer.config.RagCacheProperties;
 import me.sathish.runs_ai_analyzer.dto.GarminRunDataDTO;
 import me.sathish.runs_ai_analyzer.dto.RunAnalysisResponse;
@@ -54,7 +55,7 @@ class RagStorageServiceTest {
 
     @BeforeEach
     void setUp() {
-        ragStorageService = new RagStorageServiceImpl(documentRepository, vectorStore, cacheProperties);
+        ragStorageService = new RagStorageServiceImpl(documentRepository, vectorStore, cacheProperties, new ObjectMapper());
         
         testRuns = List.of(
                 GarminRunDataDTO.builder()
@@ -83,6 +84,9 @@ class RagStorageServiceTest {
                 .containsRunData(true)
                 .summary("Analysis of 2 runs covering 12.5 km")
                 .rawAnalysis("Detailed AI analysis of running performance...")
+                .recommendations(List.of("Recover well", "Keep easy runs easy"))
+                .riskFlags(List.of("Watch fatigue"))
+                .confidenceScore(84)
                 .metrics(PerformanceMetrics.builder()
                         .totalRuns(2)
                         .totalDistanceKm(12.5)
@@ -122,10 +126,15 @@ class RagStorageServiceTest {
         assertThat(capturedDoc.getActivityIds()).isEqualTo("ACT001,ACT002");
         assertThat(capturedDoc.getTotalRuns()).isEqualTo(2);
         assertThat(capturedDoc.getTotalDistanceKm()).isEqualTo(12.5);
+        assertThat(capturedDoc.getMetadata()).containsEntry("structuredSummary", "Analysis of 2 runs covering 12.5 km");
+        assertThat(capturedDoc.getMetadata()).containsEntry("confidenceScore", 84);
+        assertThat(capturedDoc.getMetadata()).containsKey("insights");
+        assertThat(capturedDoc.getMetadata()).containsKey("recommendations");
 
         verify(vectorStore).add(vectorDocumentCaptor.capture());
         List<Document> vectorDocs = vectorDocumentCaptor.getValue();
         assertThat(vectorDocs).hasSize(1);
+        assertThat(vectorDocs.getFirst().getText()).contains("Summary: Analysis of 2 runs covering 12.5 km");
     }
 
     @Test
