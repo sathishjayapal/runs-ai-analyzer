@@ -43,6 +43,19 @@ if [ -f ".env" ]; then
   _saved_config_pass=$(grep -E "^SPRING_CLOUD_CONFIG_PASSWORD=" .env | tail -1 | cut -d= -f2- || true)
 fi
 
+# If not saved, try to fetch from config-server .env
+if [ -z "$_saved_config_user" ] || [ -z "$_saved_config_pass" ]; then
+  for _cfg_dir in \
+      "$SCRIPT_DIR/../sathishproject-config-server" \
+      "$HOME/IdeaProjects/sathishproject-config-server"; do
+    if [ -f "$_cfg_dir/.env" ]; then
+      _saved_config_user=$(grep -E "^username=" "$_cfg_dir/.env" | tail -1 | cut -d= -f2- || true)
+      _saved_config_pass=$(grep -E "^pass=" "$_cfg_dir/.env" | tail -1 | cut -d= -f2- || true)
+      [ -n "$_saved_config_user" ] && break
+    fi
+  done
+fi
+
 if [ "$CLOUD_MODE" = true ]; then
   print_info "Configuring runs-ai-analyzer for cloud database..."
 
@@ -123,8 +136,8 @@ fi
 if docker ps --filter "name=^${CONTAINER_NAME}$" --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   print_status "${CONTAINER_NAME} already running on :${DB_PORT}"
 else
-  print_info "Starting shared pgvector database and RabbitMQ via jubilant-memory stack..."
-  docker compose -f "$INFRA_DIR/docker-compose.yml" --profile running-ai up -d runs-ai-analyzer-db sathishproject-rabbitmq
+  print_info "Starting pgvector database via jubilant-memory stack..."
+  docker compose -f "$INFRA_DIR/docker-compose.yml" --profile running-ai up -d runs-ai-analyzer-db
 fi
 
 print_info "Waiting for PostgreSQL on :${DB_PORT}..."
