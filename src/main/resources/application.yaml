@@ -82,7 +82,30 @@ rag:
     similarity-threshold: ${RAG_CACHE_SIMILARITY_THRESHOLD:0.85}
     ttl-days: ${RAG_CACHE_TTL_DAYS:7}
 
+runs-app:
+  base-url: ${RUNS_APP_BASE_URL:http://localhost:8080}
+
+analysis:
+  batch:
+    size: ${ANALYSIS_BATCH_SIZE:5}
+    window-minutes: ${ANALYSIS_BATCH_WINDOW_MINUTES:60}
+    interval-ms: ${ANALYSIS_BATCH_INTERVAL_MS:30000}
+
+reconciliation:
+  enabled: ${RECONCILIATION_ENABLED:true}
+  max-retries: ${RECONCILIATION_MAX_RETRIES:3}
+  retry-delay-minutes: ${RECONCILIATION_RETRY_DELAY_MINUTES:30}
+  lookback-days: ${RECONCILIATION_LOOKBACK_DAYS:7}
+  cron: ${RECONCILIATION_CRON:0 0 */6 * * *}
+
+rabbitmq:
+  listener:
+    prefetch: ${RABBITMQ_LISTENER_PREFETCH:10}
+    concurrency: ${RABBITMQ_LISTENER_CONCURRENCY:2}
+    max-concurrency: ${RABBITMQ_LISTENER_MAX_CONCURRENCY:5}
+
 logging:
   level:
     me.sathish.runs_ai_analyzer: DEBUG
     org.springframework.ai: INFO
+    org.springframework.amqp: INFO

@@ -42,7 +42,7 @@ public class RunAnalysisEventPublisher {
 
             rabbitTemplate.convertAndSend(
                     RabbitMQConfiguration.GARMIN_EXCHANGE,
-                    RabbitMQConfiguration.GARMIN_ROUTING_KEY,
+                    RabbitMQConfiguration.GARMIN_OPS_ROUTING_KEY,
                     objectMapper.writeValueAsString(event));
 
             log.info("Published run analysis event. type={}, cached={}, runs={}",

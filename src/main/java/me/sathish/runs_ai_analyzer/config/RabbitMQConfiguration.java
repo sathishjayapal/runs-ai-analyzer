@@ -12,8 +12,9 @@ import org.springframework.context.annotation.Configuration;
 @Slf4j
 public class RabbitMQConfiguration {
 
+    // For publishing analysis results back to eventstracker (if needed)
     public static final String GARMIN_EXCHANGE = "x.sathishprojects.garmin.events.exchange";
-    public static final String GARMIN_ROUTING_KEY = "sathishprojects.garmin.api.event";
+    public static final String GARMIN_OPS_ROUTING_KEY = "sathishprojects.garmin.ops.analysis";
 
     @Bean
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, ObjectMapper objectMapper) {
