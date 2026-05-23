@@ -3,8 +3,8 @@ services:
     image: pgvector/pgvector:pg17
     environment:
       - POSTGRES_DB=runs-ai-analyzer
-      - POSTGRES_USER=
-      - POSTGRES_PASSWORD=
+      - POSTGRES_USER={RUNS_AI_ANALYZER_DB_USER}
+      - POSTGRES_PASSWORD={RUNS_AI_ANALYZER_DB_PASSWORD}
     ports:
       - 5444:5432
     volumes:
