@@ -3,6 +3,14 @@ spring:
     name: runs-ai-analyzer
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
 
-# Note: Main configuration is loaded from Spring Cloud Config Server
+# Note: Most configuration is loaded from Spring Cloud Config Server.
+# Flyway is configured here (not config server) because Spring Boot 4.x evaluates
+# @ConditionalOnProperty for FlywayAutoConfiguration before bootstrap properties
+# from the config server are promoted into the environment.
 # See: jubilant-memory/running/runs-ai-analyzer/runs-ai-analyzer-{profile}.yml
