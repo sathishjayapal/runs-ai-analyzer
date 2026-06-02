@@ -4,8 +4,6 @@
 
 This guide verifies that all three microservices work together correctly with the shared queue infrastructure.
 
----
-
 ## Prerequisites
 
 - Java 21+
@@ -13,8 +11,6 @@ This guide verifies that all three microservices work together correctly with th
 - Docker (for RabbitMQ)
 - PostgreSQL (3 databases)
 - CSV file with Garmin activities
-
----
 
 ## Step 1: Start Infrastructure (2 minutes)
 
@@ -43,8 +39,6 @@ psql -h localhost -p 5443 -U postgres -d runs-app -c "SELECT 1"
 psql -h localhost -p 5444 -U postgres -d runs-ai-analyzer -c "SELECT 1"
 ```
 
----
-
 ## Step 2: Start Services in Order
 
 ### Terminal 1: eventstracker (MUST START FIRST)
@@ -55,13 +49,12 @@ cd /Users/skminfotech/IdeaProjects/eventstracker
 ```
 
 **Wait for:**
-```
-✅ "Declared queue: q.sathishprojects.garmin.api.events"
-✅ "Declared queue: q.sathishprojects.garmin.ops.events"
-✅ "Declared queue: dlq.sathishprojects.garmin.api.events"
-✅ "Declared queue: dlq.sathishprojects.garmin.ops.events"
-✅ "Started EventServiceApplication"
-```
+
+- Declared queue: q.sathishprojects.garmin.api.events
+- Declared queue: q.sathishprojects.garmin.ops.events
+- Declared queue: dlq.sathishprojects.garmin.api.events
+- Declared queue: dlq.sathishprojects.garmin.ops.events
+- Started EventServiceApplication
 
 ### Terminal 2: runs-app
 
@@ -71,11 +64,10 @@ cd /Users/skminfotech/IdeaProjects/runs-app
 ```
 
 **Wait for:**
-```
-✅ "Validated Garmin API queue exists: q.sathishprojects.garmin.api.events"
-✅ "Validated Garmin OPS queue exists: q.sathishprojects.garmin.ops.events"
-✅ "Started RunsAppApplication"
-```
+
+- Validated Garmin API queue exists: q.sathishprojects.garmin.api.events
+- Validated Garmin OPS queue exists: q.sathishprojects.garmin.ops.events
+- Started RunsAppApplication
 
 ### Terminal 3: runs-ai-analyzer
 
@@ -85,12 +77,9 @@ cd /Users/skminfotech/IdeaProjects/runs-ai-analyzer
 ```
 
 **Wait for:**
-```
-✅ "RabbitMQ listener factory configured: prefetch=10, concurrency=2-5"
-✅ "Started RunsAiAnalyzerApplication"
-```
 
----
+- RabbitMQ listener factory configured: prefetch=10, concurrency=2-5
+- Started RunsAiAnalyzerApplication
 
 ## Step 3: Verify Queue Setup
 
@@ -119,7 +108,6 @@ Click on `q.sathishprojects.garmin.api.events`:
 Click on `q.sathishprojects.garmin.ops.events`:
 - ✅ Bound to `x.sathishprojects.garmin.events.exchange` with pattern `sathishprojects.garmin.ops.*`
 
----
 
 ## Step 4: Import CSV File
 
@@ -135,54 +123,52 @@ Running,2026-04-23 18:00:00,3.2,280,00:18:45,150,160,12345679,Evening Run
 EOF
 ```
 
----
 
 ## Step 5: Verify Event Flow
 
 ### Terminal 2 (runs-app) Logs
 
 ```
-✅ "Imported CSV activity: 12345678 (DB id: 1001)"
-✅ "Published SUCCESS event to API queue for CSV activity: 12345678"
-✅ "Published SUCCESS event to OPS queue for CSV activity: 12345678"
-✅ "Imported CSV activity: 12345679 (DB id: 1002)"
-✅ "Published SUCCESS event to API queue for CSV activity: 12345679"
-✅ "Published SUCCESS event to OPS queue for CSV activity: 12345679"
+"Imported CSV activity: 12345678 (DB id: 1001)"
+"Published SUCCESS event to API queue for CSV activity: 12345678"
+"Published SUCCESS event to OPS queue for CSV activity: 12345678"
+"Imported CSV activity: 12345679 (DB id: 1002)"
+"Published SUCCESS event to API queue for CSV activity: 12345679"
+"Published SUCCESS event to OPS queue for CSV activity: 12345679"
 ```
 
 ### Terminal 1 (eventstracker) Logs
 
 ```
-✅ "=== Received Garmin event from RabbitMQ ==="
-✅ "Event payload: {\"eventType\":\"GARMIN_CSV_RUN\",\"activityId\":\"12345678\"..."
-✅ "Persisted Garmin event payload for EventId=... as DB record ID=..."
-✅ "Total processed Garmin events count from queue: 1"
+"=== Received Garmin event from RabbitMQ ==="
+"Event payload: {\"eventType\":\"GARMIN_CSV_RUN\",\"activityId\":\"12345678\"..."
+"Persisted Garmin event payload for EventId=... as DB record ID=..."
+"Total processed Garmin events count from queue: 1"
 
-✅ "=== Received Garmin event from RabbitMQ ==="
-✅ "Event payload: {\"eventType\":\"GARMIN_CSV_RUN\",\"activityId\":\"12345679\"..."
-✅ "Persisted Garmin event payload for EventId=... as DB record ID=..."
-✅ "Total processed Garmin events count from queue: 2"
+"=== Received Garmin event from RabbitMQ ==="
+"Event payload: {\"eventType\":\"GARMIN_CSV_RUN\",\"activityId\":\"12345679\"..."
+"Persisted Garmin event payload for EventId=... as DB record ID=..."
+"Total processed Garmin events count from queue: 2"
 ```
 
 ### Terminal 3 (runs-ai-analyzer) Logs
 
 ```
-✅ "Received Garmin event message: {\"eventType\":\"GARMIN_CSV_RUN\"..."
-✅ "Queued Garmin run for analysis: activityId=12345678, dbId=1001"
-✅ "Added event to pending queue: key=12345678_1001, queueSize=1"
+"Received Garmin event message: {\"eventType\":\"GARMIN_CSV_RUN\"..."
+"Queued Garmin run for analysis: activityId=12345678, dbId=1001"
+"Added event to pending queue: key=12345678_1001, queueSize=1"
 
-✅ "Received Garmin event message: {\"eventType\":\"GARMIN_CSV_RUN\"..."
-✅ "Queued Garmin run for analysis: activityId=12345679, dbId=1002"
-✅ "Added event to pending queue: key=12345679_1002, queueSize=2"
+"Received Garmin event message: {\"eventType\":\"GARMIN_CSV_RUN\"..."
+"Queued Garmin run for analysis: activityId=12345679, dbId=1002"
+"Added event to pending queue: key=12345679_1002, queueSize=2"
 
 (After 30 seconds)
-✅ "Processing batch of 2 pending events"
-✅ "Processing 2 events for batch analysis"
-✅ "Fetched 2 runs from runs-app"
-✅ "Batch analysis completed: runs=2, documentId=..., cached=false"
+"Processing batch of 2 pending events"
+"Processing 2 events for batch analysis"
+"Fetched 2 runs from runs-app"
+"Batch analysis completed: runs=2, documentId=..., cached=false"
 ```
 
----
 
 ## Step 6: Verify Database State
 
@@ -265,7 +251,6 @@ LIMIT 5;
 
 **Expected:** 1 row (batch analysis of 2 runs)
 
----
 
 ## Step 7: Test Idempotency
 
@@ -279,17 +264,17 @@ cp ~/Downloads/activities.csv /data/garmin-fit-files/test2.csv
 ### Verify runs-app Logs
 
 ```
-✅ "Activity already exists with same data, skipping: 2026-04-23 Morning Run"
-✅ "Published SKIPPED event to API queue for CSV activity: 12345678"
+"Activity already exists with same data, skipping: 2026-04-23 Morning Run"
+"Published SKIPPED event to API queue for CSV activity: 12345678"
 (Note: NO "Published to OPS queue" - correct!)
 ```
 
 ### Verify eventstracker Logs
 
 ```
-✅ "=== Received Garmin event from RabbitMQ ==="
-✅ "Event payload: {\"status\":\"SKIPPED\"..."
-✅ "Persisted Garmin event payload..."
+"=== Received Garmin event from RabbitMQ ==="
+"Event payload: {\"status\":\"SKIPPED\"..."
+"Persisted Garmin event payload..."
 ```
 
 ### Verify runs-ai-analyzer Logs
@@ -311,7 +296,6 @@ GROUP BY status;
 SELECT COUNT(*) FROM analysis_processing_log;
 ```
 
----
 
 ## Step 8: Test Error Handling
 
@@ -328,17 +312,17 @@ EOF
 ### Verify runs-app Logs
 
 ```
-✅ "Failed to save CSV activity: ..."
-✅ "Published FAILED event to API queue for CSV activity: ..."
+"Failed to save CSV activity: ..."
+"Published FAILED event to API queue for CSV activity: ..."
 (Note: NO "Published to OPS queue" - correct!)
 ```
 
 ### Verify eventstracker Logs
 
 ```
-✅ "=== Received Garmin event from RabbitMQ ==="
-✅ "Event payload: {\"status\":\"FAILED\"..."
-✅ "Persisted Garmin event payload..."
+"=== Received Garmin event from RabbitMQ ==="
+"Event payload: {\"status\":\"FAILED\"..."
+"Persisted Garmin event payload..."
 ```
 
 ### Verify runs-ai-analyzer Logs
@@ -347,7 +331,6 @@ EOF
 (No logs - correct! FAILED events not sent to OPS queue)
 ```
 
----
 
 ## Step 9: Test Reconciliation
 
@@ -392,13 +375,12 @@ cd /Users/skminfotech/IdeaProjects/runs-ai-analyzer
 ### Verify Catch-Up
 
 ```
-✅ "Received Garmin event message..."
-✅ "Queued Garmin run for analysis: activityId=12345680"
-✅ "Processing batch of 1 pending events"
-✅ "Batch analysis completed: runs=1"
+"Received Garmin event message..."
+"Queued Garmin run for analysis: activityId=12345680"
+"Processing batch of 1 pending events"
+"Batch analysis completed: runs=1"
 ```
 
----
 
 ## Step 10: Monitor All Services
 
@@ -430,9 +412,7 @@ FROM analysis_processing_log
 GROUP BY processing_status;
 ```
 
----
-
-## Success Criteria ✅
+## Success Criteria
 
 After completing all steps, verify:
 
@@ -462,7 +442,6 @@ After completing all steps, verify:
 - ✅ Analysis results stored in database
 - ✅ Reconciliation catches up missed events
 
----
 
 ## Troubleshooting
 
@@ -504,7 +483,6 @@ HAVING COUNT(*) > 1;
 2. Queue binding correct: `sathishprojects.garmin.api.*`
 3. eventstracker listener running
 
----
 
 ## Performance Testing
 
@@ -529,7 +507,6 @@ done > /data/garmin-fit-files/load_test.csv
 - No errors in any service
 - No messages in DLQs
 
----
 
 ## Cleanup
 
@@ -546,7 +523,6 @@ psql -h localhost -p 5443 -U postgres -d runs-app -c "TRUNCATE garmin_run CASCAD
 psql -h localhost -p 5444 -U postgres -d runs-ai-analyzer -c "TRUNCATE analysis_processing_log, run_analysis_document CASCADE"
 ```
 
----
 
 ## Summary
 

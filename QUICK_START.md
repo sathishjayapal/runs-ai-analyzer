@@ -1,15 +1,13 @@
 # Quick Start Guide - Event-Driven Integration
 
-## 🚀 Get Running in 5 Minutes
+Get the services running in 5 minutes.
 
-### Prerequisites
+## Prerequisites
 
 - Java 21+
 - Maven 3.8+
 - Docker & Docker Compose
 - PostgreSQL client (psql)
-
----
 
 ## Step 1: Start Infrastructure (2 minutes)
 
@@ -24,8 +22,6 @@ docker run -d --name rabbitmq \
 open http://localhost:15672  # Login: guest/guest
 ```
 
----
-
 ## Step 2: Start runs-app (1 minute)
 
 ```bash
@@ -35,8 +31,6 @@ cd /Users/skminfotech/IdeaProjects/runs-app
 ```
 
 **Wait for:** `Started RunsAppApplication`
-
----
 
 ## Step 3: Start runs-ai-analyzer (1 minute)
 
@@ -50,8 +44,6 @@ cd /Users/skminfotech/IdeaProjects/runs-ai-analyzer
 - `RabbitMQ listener factory configured`
 - `Started RunsAiAnalyzerApplication`
 
----
-
 ## Step 4: Verify Integration (1 minute)
 
 ### Check RabbitMQ Queues
@@ -59,9 +51,10 @@ cd /Users/skminfotech/IdeaProjects/runs-ai-analyzer
 Open http://localhost:15672 → Queues tab
 
 You should see:
-- ✅ `q.runs.ai.analyzer.garmin.events` (0 messages)
-- ✅ `q.runs.ai.analyzer.dlq` (0 messages)
-- ✅ `q.sathishprojects.garmin.api.events` (existing queue)
+
+- `q.runs.ai.analyzer.garmin.events` (0 messages)
+- `q.runs.ai.analyzer.dlq` (0 messages)
+- `q.sathishprojects.garmin.api.events` (existing queue)
 
 ### Check Database Tables
 
@@ -75,8 +68,6 @@ psql -h localhost -p 5444 -U postgres -d runs-ai-analyzer
 # Should show empty table
 SELECT COUNT(*) FROM analysis_processing_log;
 ```
-
----
 
 ## Step 5: Test the Flow (30 seconds)
 
@@ -117,8 +108,6 @@ cp ~/Downloads/activities.csv /data/garmin-fit-files/
   "calories": "450"
 }
 ```
-
----
 
 ## Step 6: Verify Processing
 
@@ -163,8 +152,6 @@ ORDER BY created_at DESC;
 
 **Expected:** Status changes to `PROCESSING` or `COMPLETED`
 
----
-
 ## Troubleshooting
 
 ### Issue: No events received
@@ -195,7 +182,7 @@ WHERE processing_status = 'PENDING'
 - Check batch processor logs: `grep "Processing batch" logs/runs-ai-analyzer.log`
 - Verify runs-app is accessible: `curl http://localhost:8080/actuator/health`
 
-### Issue: Events failing
+#### Issue: Events failing
 
 **Check:**
 ```sql
@@ -208,8 +195,6 @@ WHERE processing_status = 'FAILED';
 - runs-app not running → `error_message: "Connection refused"`
 - Invalid data → `error_message: "No running activities"`
 - AI service down → `error_message: "Unable to generate run analysis"`
-
----
 
 ## Monitoring Dashboard (SQL)
 
@@ -245,8 +230,6 @@ WHERE processing_status = 'FAILED'
 ORDER BY created_at DESC;
 ```
 
----
-
 ## Next Steps
 
 ### 1. Test Idempotency
@@ -266,7 +249,7 @@ WHERE activity_id = 'test-123' AND database_id = 9999;
 -- Expected: 1
 ```
 
-### 2. Test Reconciliation
+#### 2. Test Reconciliation
 
 ```bash
 # Manually trigger reconciliation
@@ -276,7 +259,7 @@ curl -X POST http://localhost:8081/actuator/scheduledtasks
 # Check logs for: "Starting reconciliation process"
 ```
 
-### 3. Test Error Recovery
+#### 3. Test Error Recovery
 
 ```bash
 # Stop runs-app (simulate failure)
@@ -288,7 +271,7 @@ curl -X POST http://localhost:8081/actuator/scheduledtasks
 # Check processing log → status = COMPLETED
 ```
 
-### 4. Load Testing
+#### 4. Load Testing
 
 ```bash
 # Import multiple CSV files
@@ -300,8 +283,6 @@ done
 # Monitor processing
 watch -n 1 'psql -h localhost -p 5444 -U postgres -d runs-ai-analyzer -c "SELECT processing_status, COUNT(*) FROM analysis_processing_log GROUP BY processing_status"'
 ```
-
----
 
 ## Configuration Tuning
 
@@ -335,22 +316,18 @@ rabbitmq:
     max-concurrency: 2
 ```
 
----
-
-## Success Indicators ✅
+## Success Indicators
 
 After following this guide, you should see:
 
-1. ✅ RabbitMQ queues created and bound
-2. ✅ Events flowing from runs-app to runs-ai-analyzer
-3. ✅ Processing logs created with PENDING status
-4. ✅ Batch processor running every 30 seconds
-5. ✅ Status changing to COMPLETED after processing
-6. ✅ Analysis results stored in `run_analysis_document`
-7. ✅ Idempotency preventing duplicates
-8. ✅ Reconciliation catching up missed events
-
----
+1. RabbitMQ queues created and bound
+2. Events flowing from runs-app to runs-ai-analyzer
+3. Processing logs created with PENDING status
+4. Batch processor running every 30 seconds
+5. Status changing to COMPLETED after processing
+6. Analysis results stored in `run_analysis_document`
+7. Idempotency preventing duplicates
+8. Reconciliation catching up missed events
 
 ## Support
 
@@ -375,10 +352,6 @@ psql -h localhost -p 5444 -U postgres -d runs-ai-analyzer
 - runs-app: http://localhost:8080/actuator/health
 - runs-ai-analyzer: http://localhost:8081/actuator/health
 
----
-
-## 🎉 You're Ready!
+## You're Ready!
 
 The event-driven integration is now running. Every time a CSV is imported in runs-app, it will automatically trigger AI analysis in runs-ai-analyzer with full error handling, retry logic, and reconciliation.
-
-**Happy analyzing! 🏃‍♂️📊**

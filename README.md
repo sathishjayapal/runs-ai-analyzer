@@ -1,130 +1,97 @@
 # Runs AI Analyzer
 
-A Spring Boot microservice that analyzes Garmin running data using Anthropic Claude to provide structured AI insights, publishes analysis events into the shared RabbitMQ/EventTracker topology, and uses PgVector-backed RAG storage for cache hits and semantic search.
+A Spring Boot microservice that provides AI-powered analysis of Garmin running data using Anthropic Claude, with
+semantic search capabilities and event-driven integration with the runs-app ecosystem.
 
-## Overview
+## What It Does
 
-This microservice complements the `runs-app` project by providing intelligent analysis of running activities. It accepts Garmin run data, determines if the data contains running activities, and uses Anthropic Claude to generate personalized training insights. Analyses are stored in a PgVector-backed vector store for semantic search and RAG-based caching to avoid redundant LLM calls.
+This service accepts Garmin running activity data and generates intelligent, structured coaching insights using Claude.
+Analyses are stored in a PgVector-backed vector store for semantic search and caching to avoid redundant API calls.
 
-## Features
+### Core Features
 
-- **Structured AI Output**: Claude returns JSON with summary, insights, recommendations, risk flags, and confidence score
-- **Run Detection**: Identifies running activities from mixed Garmin data
-- **Performance Metrics**: Calculates total distance, duration, pace, heart rate, and calories
-- **RAG Caching**: Stores analyses in PgVector and returns cached results for similar queries (configurable similarity threshold)
-- **Semantic Search**: Search past analyses by natural language queries
-- **Event Publication**: Publishes `RUN_ANALYSIS_COMPLETED` and `RUN_ANALYSIS_CACHE_HIT` payloads to the shared Garmin exchange for EventTracker ingestion
-- **Config Server Ready**: Supports Spring Cloud Config with `local` and `prod` profiles sourced from the shared config repository
-- **Consolidated Local Infra**: Reuses the shared `jubilant-memory/config/.env` credentials and `pgvector` Postgres container via `./dev-up.sh`
-- **Force Refresh**: Bypass RAG cache to get fresh LLM analysis on demand
-- **RESTful API**: Clean API with OpenAPI/Swagger documentation
+- **AI-Powered Analysis**: Claude generates structured JSON insights including summary, specific coaching feedback,
+  recommendations, risk flags, and confidence scores
+- **Semantic Search**: Search past analyses using natural language queries via PgVector embeddings
+- **RAG Caching**: Stores and retrieves similar analyses to avoid redundant LLM calls
+- **Event-Driven Processing**: Consumes Garmin events from RabbitMQ, processes with idempotency guarantees
+- **Batch Processing**: Efficiently batches analysis requests for cost optimization
+- **Run Journal**: Store and retrieve personal running journal entries with embeddings
+- **Error Recovery**: Dead letter queue, retry logic, and reconciliation for failed events
+- **REST API**: Full OpenAPI/Swagger documentation with health checks
 
 ## Tech Stack
 
-- **Java 21**
-- **Spring Boot 4.0.1**
-- **Spring AI 2.0.0-M1** (Anthropic Claude + Ollama)
-- **PostgreSQL** with **PgVector** extension (vector store)
-- **Ollama** (nomic-embed-text model for embeddings)
-- **Flyway** (database migrations)
-- **SpringDoc OpenAPI 3.0**
-- **Lombok**
-- **Testcontainers** (integration tests)
+- **Java 21** with Spring Boot 4.0.1
+- **Spring AI** for Claude and Ollama integration
+- **PostgreSQL** with PgVector for vector storage
+- **RabbitMQ** for event-driven integration
+- **Flyway** for database migrations
+- **SpringDoc OpenAPI** for API documentation
 
-## Prerequisites
+## Quick Start
+
+### Prerequisites
 
 - JDK 21+
 - Maven 3.9+
-- Docker (for PostgreSQL/PgVector and Ollama via Docker Compose)
+- Docker & Docker Compose
 - Anthropic API Key
+- PostgreSQL with pgvector extension
+- RabbitMQ
 
-## Getting Started
-
-### Local Development
-
-The preferred local flow now uses the shared infrastructure credentials and container topology:
+### Setup
 
 ```bash
-cd runs-ai-analyzer
-./dev-up.sh
-mvn spring-boot:run -Dspring-boot.run.profiles=local
-```
+# 1. Start infrastructure
+docker compose up -d postgres rabbitmq ollama
 
-`./dev-up.sh` expects `../jubilant-memory/config/.env` to exist and will:
-- start the shared `runs-ai-analyzer-db` pgvector container on port `5444`
-- reuse the shared RabbitMQ credentials
-- write a local `.env` for the analyzer
+# 2. Set environment variables
+export ANTHROPIC_API_KEY=your-key-here
+export SPRING_PROFILES_ACTIVE=local
 
-You can still run Ollama separately for embeddings:
-
-```bash
-docker compose up -d ollama ollama-init
-```
-
-## Configuration
-
-Set your Anthropic API key as an environment variable or in your profile-backed config:
-
-```bash
-export ANTHROPIC_API_KEY=your-api-key-here
-```
-
-Configuration is resolved in this order:
-
-1. Spring Cloud Config (`runs-ai-analyzer-local.yml` / `runs-ai-analyzer-prod.yml`)
-2. local `.env` generated by `./dev-up.sh`
-3. application defaults in `src/main/resources/application.yaml`
-
-Key properties:
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `RUNS_AI_ANALYZER_DB_URL` | `jdbc:postgresql://localhost:5444/runs-ai-analyzer` | PostgreSQL connection URL |
-| `RUNS_AI_ANALYZER_DB_USER` | shared infra user | PostgreSQL username |
-| `RUNS_AI_ANALYZER_DB_PASSWORD` | shared infra password | PostgreSQL password |
-| `CONFIG_SERVER_URL` | `http://localhost:8888` | Spring Cloud Config endpoint |
-| `RABBITMQ_HOST` | `localhost` | RabbitMQ host for EventTracker integration |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
-| `ANTHROPIC_API_KEY` | - | Anthropic API key (required for fresh analysis) |
-| `rag.cache.enabled` | `true` | Enable RAG-based caching |
-| `rag.cache.similarity-threshold` | `0.85` | Similarity threshold for cache hits |
-| `rag.cache.ttl-days` | `7` | Cache TTL in days |
-
-## Running the Application
-
-```bash
-cd runs-ai-analyzer
+# 3. Run the application
 ./mvnw spring-boot:run
 ```
 
-The service starts on port **8081** by default.
+The service starts on **port 8081**.
 
 ## API Endpoints
 
 ### Run Analysis
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/analysis/analyze` | Analyze multiple Garmin run activities |
-| POST | `/api/v1/analysis/check` | Check if data contains running activities |
-| POST | `/api/v1/analysis/analyze/single` | Analyze a single run activity |
+| Method | Endpoint                          | Purpose                     |
+|--------|-----------------------------------|-----------------------------|
+| POST   | `/api/v1/analysis/analyze`        | Analyze multiple runs       |
+| POST   | `/api/v1/analysis/check`          | Check if data contains runs |
+| POST   | `/api/v1/analysis/analyze/single` | Analyze a single run        |
 
-### RAG Search
+### RAG Search & Retrieval
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/rag/search` | Search similar past analyses using semantic similarity |
-| GET | `/api/v1/rag/recent?limit=10` | Get most recent analyses |
-| GET | `/api/v1/rag/document/{documentId}` | Get a specific analysis by document ID |
-| GET | `/api/v1/rag/activity/{activityId}` | Find analyses containing a specific activity |
-| GET | `/api/v1/rag/distance?minDistanceKm=5.0` | Find analyses by minimum distance |
+| Method | Endpoint                                 | Purpose                          |
+|--------|------------------------------------------|----------------------------------|
+| POST   | `/api/v1/rag/search`                     | Semantic search of past analyses |
+| GET    | `/api/v1/rag/recent?limit=10`            | Get recent analyses              |
+| GET    | `/api/v1/rag/document/{id}`              | Get analysis by ID               |
+| GET    | `/api/v1/rag/activity/{id}`              | Find analyses by activity        |
+| GET    | `/api/v1/rag/distance?minDistanceKm=5.0` | Find analyses by distance        |
 
-### API Documentation
+### Run Journal
 
-Swagger UI: http://localhost:8081/swagger-ui.html
-OpenAPI Spec: http://localhost:8081/api-docs
+| Method | Endpoint                       | Purpose                      |
+|--------|--------------------------------|------------------------------|
+| POST   | `/api/v1/journal/entries`      | Create journal entry         |
+| GET    | `/api/v1/journal/entries`      | List journal entries         |
+| GET    | `/api/v1/journal/entries/{id}` | Get entry by ID              |
+| GET    | `/api/v1/journal/search`       | Search entries by similarity |
 
-## Example Request
+### Documentation
+
+- **Swagger UI**: http://localhost:8081/swagger-ui.html
+- **OpenAPI Spec**: http://localhost:8081/api-docs
+- **Health Check**: http://localhost:8081/actuator/health
+
+## Example: Analyze Runs
 
 ```bash
 curl -X POST http://localhost:8081/api/v1/analysis/analyze \
@@ -136,10 +103,10 @@ curl -X POST http://localhost:8081/api/v1/analysis/analyze \
         "activityDate": "2024-01-15",
         "activityType": "running",
         "activityName": "Morning Run",
-        "distance": "5.5",
+        "distance": 5.5,
         "elapsedTime": "00:28:30",
-        "maxHeartRate": "165",
-        "calories": "450"
+        "maxHeartRate": 165,
+        "calories": 450
       }
     ],
     "forceRefresh": false
@@ -152,7 +119,7 @@ curl -X POST http://localhost:8081/api/v1/analysis/analyze \
 {
   "documentId": "0d2d5f4e-df40-4d2b-91e8-f9f7c8a63145",
   "containsRunData": true,
-  "summary": "Your recent runs show steady aerobic work with one higher-effort session layered in effectively.",
+  "summary": "Your recent runs show steady aerobic work with effective intensity distribution.",
   "insights": [
     {
       "category": "Pace",
@@ -161,11 +128,11 @@ curl -X POST http://localhost:8081/api/v1/analysis/analyze \
     }
   ],
   "recommendations": [
-    "Repeat this comparison after your next training block.",
-    "Tag workout intent in Garmin notes to improve future coaching prompts."
+    "Repeat comparison after next training block",
+    "Tag workout intent in Garmin notes for better coaching prompts"
   ],
   "riskFlags": [
-    "Watch recovery if back-to-back hard efforts continue."
+    "Watch recovery if back-to-back hard efforts continue"
   ],
   "confidenceScore": 86,
   "metrics": {
@@ -176,39 +143,199 @@ curl -X POST http://localhost:8081/api/v1/analysis/analyze \
     "averageHeartRate": 165,
     "totalCalories": 450
   },
-  "rawAnalysis": "...(AI-generated analysis)...",
   "analyzedAt": "2024-01-15T10:30:00Z",
   "cachedResult": false
 }
 ```
 
-## Integration
+## Event-Driven Integration
 
-### runs-app
+### How It Works
 
-This service accepts Garmin-style payloads compatible with the `runs-app` import data flow.
+1. **runs-app** imports Garmin CSV files and publishes events to RabbitMQ
+2. **runs-ai-analyzer** listens on the queue and processes events asynchronously
+3. Events are queued with **idempotency guarantees** (same event never analyzed twice)
+4. Every 30 seconds, the batch processor analyzes accumulated runs
+5. Failed events are automatically retried with exponential backoff
+6. Reconciliation job runs every 6 hours to catch missed events
 
-### EventTracker
+### Configuration
 
-Fresh and cached analyses are published to:
+Key properties in `application.yaml` (via Spring Cloud Config):
 
-- Exchange: `x.sathishprojects.garmin.events.exchange`
-- Routing key: `sathishprojects.garmin.api.event`
+```yaml
+analysis:
+  batch:
+    size: 5                    # Minimum runs to trigger analysis
+    interval-ms: 30000         # Batch collection window
+    window-minutes: 60         # Maximum wait time
 
-This lets `eventstracker` persist analyzer activity alongside the existing Garmin ingestion events without requiring a new queue topology.
+reconciliation:
+  enabled: true
+  max-retries: 3               # Retry attempts for failed events
+  retry-delay-minutes: 30      # Wait between retries
+  lookback-days: 7             # Historical lookback for catch-up
+  cron: "0 0 */6 * * *"        # Every 6 hours
+```
 
-### Config Server
+## Database Schema
 
-The analyzer uses the same Spring Cloud Config bootstrap pattern as the rest of your microservices and expects profile-backed files in the shared config repository under:
+### run_analysis_document
 
-- `running/runs-ai-analyzer/runs-ai-analyzer-local.yml`
-- `running/runs-ai-analyzer/runs-ai-analyzer-prod.yml`
+Stores all AI-generated analyses with embeddings for semantic search.
 
-## Health Check
+### analysis_processing_log
+
+Tracks event processing for idempotency and error recovery:
+
+- `activity_id` + `database_id` unique constraint ensures no duplicates
+- Status tracking: PENDING → PROCESSING → COMPLETED/FAILED
+- Retry count and error messages for troubleshooting
+
+### run_journal_entry
+
+Personal running journal entries with embedding vectors for similarity search.
+
+## Search Examples
+
+### Semantic Search
+
+Find analyses similar to a query:
+
+```bash
+curl -X POST http://localhost:8081/api/v1/rag/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "high intensity interval training with long recovery",
+    "topK": 5
+  }'
+```
+
+### By Activity
+
+Find all analyses containing a specific activity:
+
+```bash
+curl http://localhost:8081/api/v1/rag/activity/12345
+```
+
+### By Distance
+
+Find analyses with runs of at least 10 km:
+
+```bash
+curl "http://localhost:8081/api/v1/rag/distance?minDistanceKm=10.0"
+```
+
+## Monitoring & Troubleshooting
+
+### Check Processing Status
+
+```sql
+SELECT processing_status, COUNT(*) as count
+FROM analysis_processing_log
+WHERE created_at > NOW() - INTERVAL '24 hours'
+GROUP BY processing_status;
+```
+
+### Find Failed Events
+
+```sql
+SELECT activity_id, retry_count, error_message, created_at
+FROM analysis_processing_log
+WHERE processing_status = 'FAILED'
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+### Health Check
 
 ```bash
 curl http://localhost:8081/actuator/health
 ```
+
+## Environment Variables
+
+| Variable                 | Default                  | Purpose                   |
+|--------------------------|--------------------------|---------------------------|
+| `ANTHROPIC_API_KEY`      | -                        | Claude API key (required) |
+| `SPRING_PROFILES_ACTIVE` | `local`                  | Active profile            |
+| `RUNS_APP_BASE_URL`      | `http://localhost:8080`  | runs-app API endpoint     |
+| `RABBITMQ_HOST`          | `localhost`              | RabbitMQ server           |
+| `OLLAMA_BASE_URL`        | `http://localhost:11434` | Ollama embedding service  |
+
+## Development
+
+### Run Tests
+
+```bash
+mvn test -Dtest=RunAnalysisServiceTest
+mvn test -Dtest=GarminEventIntegrationTest
+```
+
+### Run with Docker
+
+```bash
+docker compose up -d
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+### View Logs
+
+```bash
+tail -f logs/runs-ai-analyzer.log
+```
+
+## Integration with runs-app
+
+This service consumes events from runs-app when users import Garmin CSV files. The event includes:
+
+```json
+{
+  "eventType": "GARMIN_CSV_RUN",
+  "activityId": "12345",
+  "activityName": "Morning Run",
+  "activityDate": "2024-01-15T06:00:00Z",
+  "distance": 5.5,
+  "elapsedTime": "00:28:30",
+  "databaseId": 1001,
+  "status": "SUCCESS",
+  "fileName": "activities.csv",
+  "activityType": "running",
+  "maxHeartRate": 165,
+  "calories": 450
+}
+```
+
+Only SUCCESS and UPDATED events are analyzed. Failed imports are skipped.
+
+## Deployment
+
+### Production Checklist
+
+- Anthropic API key is configured
+- PostgreSQL with pgvector extension is running
+- RabbitMQ is accessible
+- Spring Cloud Config server is available
+- Ollama is running for embeddings
+- Database migrations have run successfully
+
+### Flyway Migrations
+
+Migrations run automatically on startup:
+
+1. **V001**: Create RAG tables (run_analysis_document, embeddings)
+2. **V002**: Fix primary key sequences
+3. **V003**: Create analysis_processing_log (idempotency tracking)
+4. **V004**: Create run_journal_entry table
+
+## Architecture Notes
+
+- **Idempotency**: Database-backed unique constraints guarantee no duplicate analyses even if events are replayed
+- **Caching**: RAG store returns cached similar analyses to avoid redundant Claude calls
+- **Batching**: Events are batched for efficiency, reducing per-run analysis costs
+- **Error Recovery**: Dead letter queue preserves failed messages; reconciliation retries periodically
+- **Separation of Concerns**: Event listener queues work, batch processor handles analysis independently
 
 ## License
 
