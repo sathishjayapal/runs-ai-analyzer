@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Embeds subjective journal entries into the pgvector store so they can be
@@ -83,7 +84,7 @@ public class JournalEmbeddingService {
     }
 
     private String vectorIdFor(RunJournalEntry entry) {
-        return SOURCE_TYPE + ":" + entry.getId();
+        return UUID.nameUUIDFromBytes((SOURCE_TYPE + ":" + entry.getId()).getBytes()).toString();
     }
 
     /**

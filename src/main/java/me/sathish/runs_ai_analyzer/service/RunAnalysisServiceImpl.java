@@ -2,7 +2,6 @@ package me.sathish.runs_ai_analyzer.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import me.sathish.runs_ai_analyzer.dto.AiStructuredAnalysis;
 import me.sathish.runs_ai_analyzer.dto.GarminRunDataDTO;
@@ -12,6 +11,7 @@ import me.sathish.runs_ai_analyzer.dto.RunAnalysisResponse.RunInsight;
 import me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument;
 import me.sathish.runs_ai_analyzer.exception.AiAnalysisException;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -21,7 +21,6 @@ import java.util.Map;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class RunAnalysisServiceImpl implements RunAnalysisService {
 
     private static final String SYSTEM_PROMPT = """
@@ -51,10 +50,24 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
             - Base your analysis only on the supplied running data and derived metrics.
             """;
 
-    private final ChatClient.Builder chatClientBuilder;
+    private final ChatClient anthropicChatClient;
+    private final ChatClient ollamaChatClient;
     private final RagStorageService ragStorageService;
     private final ObjectMapper objectMapper;
     private final RunAnalysisEventPublisher eventPublisher;
+
+    public RunAnalysisServiceImpl(
+            @Qualifier("anthropicChatClient") ChatClient anthropicChatClient,
+            @Qualifier("ollamaChatClient") ChatClient ollamaChatClient,
+            RagStorageService ragStorageService,
+            ObjectMapper objectMapper,
+            RunAnalysisEventPublisher eventPublisher) {
+        this.anthropicChatClient = anthropicChatClient;
+        this.ollamaChatClient = ollamaChatClient;
+        this.ragStorageService = ragStorageService;
+        this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
+    }
 
     @Override
     public RunAnalysisResponse analyzeRuns(List<GarminRunDataDTO> runs) {
@@ -178,33 +191,57 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
     private String getAiAnalysis(List<GarminRunDataDTO> runs, PerformanceMetrics metrics) {
         String runDataSummary = formatRunDataForAi(runs);
         String metricSummary = formatMetricsForPrompt(metrics);
+        String userPrompt = """
+                Please analyze the following Garmin running data.
+
+                Derived metrics:
+                %s
+
+                Raw run details:
+                %s
+                """.formatted(metricSummary, runDataSummary);
 
         try {
-            ChatClient chatClient = chatClientBuilder.build();
-            String response = chatClient.prompt()
+            log.debug("Calling Anthropic for AI analysis");
+            String response = anthropicChatClient.prompt()
                     .system(SYSTEM_PROMPT)
-                    .user("""
-                            Please analyze the following Garmin running data.
-
-                            Derived metrics:
-                            %s
-
-                            Raw run details:
-                            %s
-                            """.formatted(metricSummary, runDataSummary))
+                    .user(userPrompt)
                     .call()
                     .content();
 
             if (response == null || response.isBlank()) {
-                throw new AiAnalysisException("AI analysis returned an empty response");
+                throw new AiAnalysisException("Anthropic returned an empty response");
             }
 
-            log.debug("Structured AI analysis received");
+            log.debug("AI analysis received from Anthropic");
             return response;
         } catch (AiAnalysisException ex) {
             throw ex;
-        } catch (Exception ex) {
-            throw new AiAnalysisException("Unable to generate run analysis from the AI provider", ex);
+        } catch (Exception anthropicEx) {
+            log.warn("Anthropic call failed ({}), falling back to Ollama", anthropicEx.getMessage());
+            return getAiAnalysisFromOllama(userPrompt);
+        }
+    }
+
+    private String getAiAnalysisFromOllama(String userPrompt) {
+        try {
+            log.info("Calling Ollama for AI analysis fallback");
+            String response = ollamaChatClient.prompt()
+                    .system(SYSTEM_PROMPT)
+                    .user(userPrompt)
+                    .call()
+                    .content();
+
+            if (response == null || response.isBlank()) {
+                throw new AiAnalysisException("Ollama returned an empty response");
+            }
+
+            log.info("AI analysis received from Ollama fallback");
+            return response;
+        } catch (AiAnalysisException ex) {
+            throw ex;
+        } catch (Exception ollamaEx) {
+            throw new AiAnalysisException("Unable to generate run analysis from Anthropic or Ollama fallback", ollamaEx);
         }
     }
 
