@@ -9,12 +9,15 @@ import lombok.extern.slf4j.Slf4j;
 import me.sathish.runs_ai_analyzer.dto.GarminRunDataDTO;
 import me.sathish.runs_ai_analyzer.dto.RunAnalysisRequest;
 import me.sathish.runs_ai_analyzer.dto.RunAnalysisResponse;
+import me.sathish.runs_ai_analyzer.entity.AnalysisJob;
+import me.sathish.runs_ai_analyzer.service.AnalysisJobService;
 import me.sathish.runs_ai_analyzer.service.RunAnalysisService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/analysis")
@@ -24,6 +27,7 @@ import java.util.Map;
 public class RunAnalysisController {
 
     private final RunAnalysisService runAnalysisService;
+    private final AnalysisJobService analysisJobService;
 
     @PostMapping("/analyze")
     @Operation(
@@ -63,6 +67,61 @@ public class RunAnalysisController {
                 "totalRecords", request.getRuns().size(),
                 "runningActivityCount", runCount
         ));
+    }
+
+    @PostMapping("/analyze/async")
+    @Operation(
+            summary = "Submit run analysis asynchronously",
+            description = "Immediately returns a jobId. Poll /analyze/status/{jobId} to check progress, then fetch result from /analyze/result/{jobId}."
+    )
+    @ApiResponse(responseCode = "202", description = "Analysis job accepted")
+    @ApiResponse(responseCode = "400", description = "Invalid request data")
+    public ResponseEntity<Map<String, Object>> analyzeRunsAsync(
+            @Valid @RequestBody RunAnalysisRequest request) {
+        AnalysisJob job = analysisJobService.createJob();
+        log.info("Accepted async analysis job={} for {} run(s)", job.getId(), request.getRuns().size());
+        analysisJobService.runAnalysisAsync(job.getId(), request.getRuns(), request.isForceRefresh());
+        return ResponseEntity.accepted().body(Map.of(
+                "jobId", job.getId(),
+                "status", job.getStatus(),
+                "message", "Analysis started. Poll /api/v1/analysis/analyze/status/" + job.getId() + " for progress."
+        ));
+    }
+
+    @GetMapping("/analyze/status/{jobId}")
+    @Operation(summary = "Poll async analysis job status")
+    @ApiResponse(responseCode = "200", description = "Job status returned")
+    @ApiResponse(responseCode = "404", description = "Job not found")
+    public ResponseEntity<Map<String, Object>> getAnalysisStatus(@PathVariable UUID jobId) {
+        return analysisJobService.getJob(jobId)
+                .map(job -> {
+                    Map<String, Object> body = new java.util.LinkedHashMap<>();
+                    body.put("jobId", job.getId());
+                    body.put("status", job.getStatus());
+                    body.put("createdAt", job.getCreatedAt());
+                    if (job.getUpdatedAt() != null) body.put("updatedAt", job.getUpdatedAt());
+                    if (job.getCompletedAt() != null) body.put("completedAt", job.getCompletedAt());
+                    if (job.getErrorMessage() != null) body.put("errorMessage", job.getErrorMessage());
+                    return ResponseEntity.ok(body);
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/analyze/result/{jobId}")
+    @Operation(summary = "Fetch completed async analysis result")
+    @ApiResponse(responseCode = "200", description = "Analysis result returned")
+    @ApiResponse(responseCode = "404", description = "Job not found")
+    @ApiResponse(responseCode = "409", description = "Job not yet completed")
+    public ResponseEntity<?> getAnalysisResult(@PathVariable UUID jobId) {
+        return analysisJobService.getJob(jobId)
+                .map(job -> switch (job.getStatus()) {
+                    case DONE -> ResponseEntity.ok(job.getResult());
+                    case FAILED -> ResponseEntity.status(500)
+                            .body(Map.of("error", job.getErrorMessage() != null ? job.getErrorMessage() : "Analysis failed"));
+                    default -> ResponseEntity.status(409)
+                            .body(Map.of("status", job.getStatus(), "message", "Analysis not yet complete"));
+                })
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/analyze/single")
