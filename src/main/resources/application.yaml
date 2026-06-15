@@ -2,7 +2,7 @@ spring:
   application:
     name: runs-ai-analyzer
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:local}
+    active: ${SPRING_PROFILES_ACTIVE}
   flyway:
     enabled: true
     baseline-on-migrate: true

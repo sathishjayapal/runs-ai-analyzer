@@ -6,13 +6,17 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import me.sathish.runs_ai_analyzer.config.RabbitMQConfiguration;
 import me.sathish.runs_ai_analyzer.dto.RunJournalEntryRequest;
 import me.sathish.runs_ai_analyzer.entity.RunJournalEntry;
 import me.sathish.runs_ai_analyzer.repository.RunJournalEntryRepository;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * CRUD for subjective runner journal entries.
@@ -30,6 +34,7 @@ import java.util.List;
 public class RunJournalController {
 
     private final RunJournalEntryRepository journalRepository;
+    private final RabbitTemplate rabbitTemplate;
 
     @PostMapping
     @Operation(summary = "Create a journal entry",
@@ -50,6 +55,7 @@ public class RunJournalController {
         RunJournalEntry saved = journalRepository.save(entry);
         log.info("Created journal entry id={}, activityId={}, date={}",
                 saved.getId(), saved.getActivityId(), saved.getEntryDate());
+        publishJournalEvent(saved, "JOURNAL_ENTRY_CREATED");
         return ResponseEntity.ok(saved);
     }
 
@@ -73,6 +79,7 @@ public class RunJournalController {
                     entry.setEmbedded(false);
                     RunJournalEntry saved = journalRepository.save(entry);
                     log.info("Updated journal entry id={}, reset for re-embedding", id);
+                    publishJournalEvent(saved, "JOURNAL_ENTRY_UPDATED");
                     return ResponseEntity.ok(saved);
                 })
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -108,11 +115,60 @@ public class RunJournalController {
     @ApiResponse(responseCode = "204", description = "Entry deleted")
     @ApiResponse(responseCode = "404", description = "Entry not found")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        if (!journalRepository.existsById(id)) {
-            return ResponseEntity.notFound().build();
+        return journalRepository.findById(id)
+                .map(entry -> {
+                    journalRepository.delete(entry);
+                    log.info("Deleted journal entry id={}", id);
+                    publishDeleteEvent(entry);
+                    return ResponseEntity.noContent().<Void>build();
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Publishes a journal event to the Garmin API exchange so EventsTracker
+     * picks it up from q.sathishprojects.garmin.api.events for auditing.
+     */
+    private void publishJournalEvent(RunJournalEntry entry, String eventType) {
+        try {
+            Map<String, Object> payload = buildJournalPayload(entry, eventType);
+            rabbitTemplate.convertAndSend(
+                    RabbitMQConfiguration.GARMIN_EXCHANGE,
+                    RabbitMQConfiguration.GARMIN_API_ROUTING_KEY,
+                    payload);
+            log.debug("Published {} event for journal entry id={}", eventType, entry.getId());
+        } catch (Exception e) {
+            log.error("Failed to publish {} event for journal entry id={}: {}",
+                    eventType, entry.getId(), e.getMessage());
         }
-        journalRepository.deleteById(id);
-        log.info("Deleted journal entry id={}", id);
-        return ResponseEntity.noContent().build();
+    }
+
+    private void publishDeleteEvent(RunJournalEntry entry) {
+        try {
+            Map<String, Object> payload = buildJournalPayload(entry, "JOURNAL_ENTRY_DELETED");
+            rabbitTemplate.convertAndSend(
+                    RabbitMQConfiguration.GARMIN_EXCHANGE,
+                    RabbitMQConfiguration.GARMIN_API_ROUTING_KEY,
+                    payload);
+            log.debug("Published JOURNAL_ENTRY_DELETED event for id={}", entry.getId());
+        } catch (Exception e) {
+            log.error("Failed to publish JOURNAL_ENTRY_DELETED event for id={}: {}", entry.getId(), e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildJournalPayload(RunJournalEntry entry, String eventType) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", eventType);
+        payload.put("source", "runs-ai-analyzer");
+        payload.put("journalEntryId", entry.getId());
+        payload.put("activityId", entry.getActivityId());
+        payload.put("entryDate", entry.getEntryDate() != null ? entry.getEntryDate().toString() : null);
+        payload.put("feel", entry.getFeel() != null ? entry.getFeel().name() : null);
+        payload.put("perceivedEffort", entry.getPerceivedEffort());
+        payload.put("bodyNotes", entry.getBodyNotes());
+        payload.put("contextNotes", entry.getContextNotes());
+        payload.put("narrative", entry.getNarrative());
+        payload.values().removeIf(java.util.Objects::isNull);
+        return payload;
     }
 }
