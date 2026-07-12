@@ -2,15 +2,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     environment:
-      - POSTGRES_DB=runs-ai-analyzer
-      - POSTGRES_USER={RUNS_AI_ANALYZER_DB_USER}
-      - POSTGRES_PASSWORD={RUNS_AI_ANALYZER_DB_PASSWORD}
+      - POSTGRES_DB=${RUNS_AI_ANALYZER_DB_NAME:-runs-ai-analyzer}
+      - POSTGRES_USER=${RUNS_AI_ANALYZER_DB_USER}
+      - POSTGRES_PASSWORD=${RUNS_AI_ANALYZER_DB_PASSWORD}
     ports:
       - 5444:5432
     volumes:
       - pgvector_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U ${RUNS_AI_ANALYZER_DB_USER} -d runs-ai-analyzer" ]
       interval: 10s
       timeout: 5s
       retries: 5

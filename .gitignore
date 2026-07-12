@@ -38,3 +38,4 @@ build/
 ### Environment ###
 .env
 *.env.local
+/.env.bak
