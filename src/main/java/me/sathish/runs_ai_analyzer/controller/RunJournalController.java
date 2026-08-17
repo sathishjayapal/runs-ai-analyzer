@@ -1,5 +1,6 @@
 package me.sathish.runs_ai_analyzer.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,6 +36,7 @@ public class RunJournalController {
 
     private final RunJournalEntryRepository journalRepository;
     private final RabbitTemplate rabbitTemplate;
+    private final ObjectMapper objectMapper;
 
     @PostMapping
     @Operation(summary = "Create a journal entry",
@@ -132,10 +134,14 @@ public class RunJournalController {
     private void publishJournalEvent(RunJournalEntry entry, String eventType) {
         try {
             Map<String, Object> payload = buildJournalPayload(entry, eventType);
+            // Payload must be a JSON string, not the raw Map — a raw object makes
+            // JacksonJsonMessageConverter stamp a __TypeId__ header that cross-service
+            // consumers (eventstracker) can't reliably resolve. See runs-app's
+            // GarminCsvImportService.publishGarminEvent for the incident this guards against.
             rabbitTemplate.convertAndSend(
                     RabbitMQConfiguration.GARMIN_EXCHANGE,
                     RabbitMQConfiguration.GARMIN_API_ROUTING_KEY,
-                    payload);
+                    objectMapper.writeValueAsString(payload));
             log.debug("Published {} event for journal entry id={}", eventType, entry.getId());
         } catch (Exception e) {
             log.error("Failed to publish {} event for journal entry id={}: {}",
@@ -149,7 +155,7 @@ public class RunJournalController {
             rabbitTemplate.convertAndSend(
                     RabbitMQConfiguration.GARMIN_EXCHANGE,
                     RabbitMQConfiguration.GARMIN_API_ROUTING_KEY,
-                    payload);
+                    objectMapper.writeValueAsString(payload));
             log.debug("Published JOURNAL_ENTRY_DELETED event for id={}", entry.getId());
         } catch (Exception e) {
             log.error("Failed to publish JOURNAL_ENTRY_DELETED event for id={}: {}", entry.getId(), e.getMessage());
