@@ -11,10 +11,13 @@ import me.sathish.runs_ai_analyzer.config.RabbitMQConfiguration;
 import me.sathish.runs_ai_analyzer.dto.RunJournalEntryRequest;
 import me.sathish.runs_ai_analyzer.entity.RunJournalEntry;
 import me.sathish.runs_ai_analyzer.repository.RunJournalEntryRepository;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,14 +137,7 @@ public class RunJournalController {
     private void publishJournalEvent(RunJournalEntry entry, String eventType) {
         try {
             Map<String, Object> payload = buildJournalPayload(entry, eventType);
-            // Payload must be a JSON string, not the raw Map — a raw object makes
-            // JacksonJsonMessageConverter stamp a __TypeId__ header that cross-service
-            // consumers (eventstracker) can't reliably resolve. See runs-app's
-            // GarminCsvImportService.publishGarminEvent for the incident this guards against.
-            rabbitTemplate.convertAndSend(
-                    RabbitMQConfiguration.GARMIN_EXCHANGE,
-                    RabbitMQConfiguration.GARMIN_API_ROUTING_KEY,
-                    objectMapper.writeValueAsString(payload));
+            publishToGarminApiQueue(payload);
             log.debug("Published {} event for journal entry id={}", eventType, entry.getId());
         } catch (Exception e) {
             log.error("Failed to publish {} event for journal entry id={}: {}",
@@ -152,14 +148,35 @@ public class RunJournalController {
     private void publishDeleteEvent(RunJournalEntry entry) {
         try {
             Map<String, Object> payload = buildJournalPayload(entry, "JOURNAL_ENTRY_DELETED");
-            rabbitTemplate.convertAndSend(
-                    RabbitMQConfiguration.GARMIN_EXCHANGE,
-                    RabbitMQConfiguration.GARMIN_API_ROUTING_KEY,
-                    objectMapper.writeValueAsString(payload));
+            publishToGarminApiQueue(payload);
             log.debug("Published JOURNAL_ENTRY_DELETED event for id={}", entry.getId());
         } catch (Exception e) {
             log.error("Failed to publish JOURNAL_ENTRY_DELETED event for id={}: {}", entry.getId(), e.getMessage());
         }
+    }
+
+    /**
+     * eventstracker's Garmin API-queue listener takes the raw AMQP Message and manually does
+     * `new String(message.getBody(), UTF_8)`, bypassing Spring's inbound conversion. That means
+     * the wire bytes must be exactly the single-encoded JSON, with no extra wrapping and no
+     * __TypeId__ header — which requires bypassing RabbitTemplate's converter on the way out too,
+     * via send() with a hand-built Message rather than convertAndSend().
+     *
+     * <p>convertAndSend(exchange, key, objectMapper.writeValueAsString(payload)) looks correct but
+     * isn't: RabbitTemplate's configured MessageConverter (JacksonJsonMessageConverter) still
+     * re-serializes whatever object it's given, including a String — double-encoding the JSON.
+     * eventstracker's raw-Message consumer then receives the literal quoted/escaped wrapper text
+     * and fails deserializing it. Confirmed live against eventstracker on 2026-08-17 (same root
+     * cause as runs-app's GarminCsvImportService.publishGarminEvent incident); this bypass approach
+     * was verified live to land correctly in eventstracker's domain_event table.
+     */
+    private void publishToGarminApiQueue(Object payload) throws Exception {
+        byte[] body = objectMapper.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
+        Message message = MessageBuilder.withBody(body)
+                .setContentType("application/json")
+                .setContentEncoding(StandardCharsets.UTF_8.name())
+                .build();
+        rabbitTemplate.send(RabbitMQConfiguration.GARMIN_EXCHANGE, RabbitMQConfiguration.GARMIN_API_ROUTING_KEY, message);
     }
 
     private Map<String, Object> buildJournalPayload(RunJournalEntry entry, String eventType) {
