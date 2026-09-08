@@ -48,7 +48,7 @@ class RagSearchControllerTest {
                 .analysisContent("Test content")
                 .summary("Test summary")
                 .totalRuns(1)
-                .totalDistanceKm(5.0)
+                .totalDistanceMiles(5.0)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
@@ -167,7 +167,7 @@ class RagSearchControllerTest {
                 .queryText("Test")
                 .analysisContent("Content")
                 .totalRuns(1)
-                .totalDistanceKm(15.0)
+                .totalDistanceMiles(15.0)
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -177,6 +177,6 @@ class RagSearchControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).hasSize(1);
-        assertThat(response.getBody().get(0).getTotalDistanceKm()).isEqualTo(15.0);
+        assertThat(response.getBody().get(0).getTotalDistanceMiles()).isEqualTo(15.0);
     }
 }

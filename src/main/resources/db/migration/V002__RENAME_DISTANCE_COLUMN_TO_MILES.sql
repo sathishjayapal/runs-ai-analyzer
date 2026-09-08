@@ -1,0 +1,1 @@
+ALTER TABLE run_analysis_document RENAME COLUMN total_distance_km TO total_distance_miles;

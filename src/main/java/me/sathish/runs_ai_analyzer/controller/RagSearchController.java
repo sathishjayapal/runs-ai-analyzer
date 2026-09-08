@@ -102,9 +102,9 @@ public class RagSearchController {
     )
     @ApiResponse(responseCode = "200", description = "Analyses found")
     public ResponseEntity<List<RunAnalysisDocument>> findByMinimumDistance(
-            @RequestParam Double minDistanceKm) {
-        log.info("Searching analyses with minimum distance: {} km", minDistanceKm);
-        List<RunAnalysisDocument> analyses = ragStorageService.findAnalysesByMinimumDistance(minDistanceKm);
+            @RequestParam Double minDistanceMiles) {
+        log.info("Searching analyses with minimum distance: {} mi", minDistanceMiles);
+        List<RunAnalysisDocument> analyses = ragStorageService.findAnalysesByMinimumDistance(minDistanceMiles);
         return ResponseEntity.ok(analyses);
     }
 }

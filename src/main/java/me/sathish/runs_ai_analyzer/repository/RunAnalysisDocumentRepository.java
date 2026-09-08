@@ -23,7 +23,7 @@ public interface RunAnalysisDocumentRepository extends JpaRepository<RunAnalysis
     @Query("SELECT r FROM RunAnalysisDocument r WHERE r.activityIds LIKE %:activityId%")
     List<RunAnalysisDocument> findByActivityIdContaining(@Param("activityId") String activityId);
 
-    @Query("SELECT r FROM RunAnalysisDocument r WHERE r.totalDistanceKm >= :minDistance ORDER BY r.createdAt DESC")
+    @Query("SELECT r FROM RunAnalysisDocument r WHERE r.totalDistanceMiles >= :minDistance ORDER BY r.createdAt DESC")
     List<RunAnalysisDocument> findByMinimumDistance(@Param("minDistance") Double minDistance);
 
     @Query("SELECT r FROM RunAnalysisDocument r WHERE r.totalRuns >= :minRuns ORDER BY r.createdAt DESC")

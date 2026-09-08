@@ -37,7 +37,7 @@ class RunAnalysisDocumentRepositoryTest {
                 .analysisContent("Good pace maintained throughout the run")
                 .summary("Analysis of 3 runs covering 15 km")
                 .totalRuns(3)
-                .totalDistanceKm(15.0)
+                .totalDistanceMiles(15.0)
                 .metadata(Map.of("avgPace", 5.5))
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -107,7 +107,7 @@ class RunAnalysisDocumentRepositoryTest {
                 .queryText("Long run")
                 .analysisContent("Long distance run")
                 .totalRuns(1)
-                .totalDistanceKm(20.0)
+                .totalDistanceMiles(20.0)
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -116,7 +116,7 @@ class RunAnalysisDocumentRepositoryTest {
         List<RunAnalysisDocument> found = repository.findByMinimumDistance(10.0);
 
         assertThat(found).hasSize(1);
-        assertThat(found.get(0).getTotalDistanceKm()).isEqualTo(20.0);
+        assertThat(found.get(0).getTotalDistanceMiles()).isEqualTo(20.0);
     }
 
     @Test

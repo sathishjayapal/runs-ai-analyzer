@@ -43,8 +43,8 @@ public class RunAnalysisDocument {
     @Column(name = "total_runs")
     private Integer totalRuns;
 
-    @Column(name = "total_distance_km")
-    private Double totalDistanceKm;
+    @Column(name = "total_distance_miles")
+    private Double totalDistanceMiles;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")

@@ -53,7 +53,7 @@ public class RagStorageServiceImpl implements RagStorageService {
                 .analysisContent(response.getRawAnalysis())
                 .summary(response.getSummary())
                 .totalRuns(response.getMetrics() != null ? response.getMetrics().getTotalRuns() : runs.size())
-                .totalDistanceKm(response.getMetrics() != null ? response.getMetrics().getTotalDistanceKm() : null)
+                .totalDistanceMiles(response.getMetrics() != null ? response.getMetrics().getTotalDistanceMiles() : null)
                 .metadata(metadata)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -73,7 +73,7 @@ public class RagStorageServiceImpl implements RagStorageService {
             Map<String, Object> vectorMetadata = new HashMap<>();
             vectorMetadata.put("documentId", analysisDocument.getDocumentId().toString());
             vectorMetadata.put("totalRuns", analysisDocument.getTotalRuns());
-            vectorMetadata.put("totalDistanceKm", analysisDocument.getTotalDistanceKm());
+            vectorMetadata.put("totalDistanceMiles", analysisDocument.getTotalDistanceMiles());
             vectorMetadata.put("createdAt", analysisDocument.getCreatedAt().toString());
 
             Document vectorDocument = new Document(
@@ -98,8 +98,8 @@ public class RagStorageServiceImpl implements RagStorageService {
             content.append("Summary: ").append(document.getSummary()).append("\n");
         }
         content.append("Total Runs: ").append(document.getTotalRuns()).append("\n");
-        if (document.getTotalDistanceKm() != null) {
-            content.append("Total Distance: ").append(document.getTotalDistanceKm()).append(" km\n");
+        if (document.getTotalDistanceMiles() != null) {
+            content.append("Total Distance: ").append(document.getTotalDistanceMiles()).append(" mi\n");
         }
         return content.toString();
     }
@@ -111,9 +111,9 @@ public class RagStorageServiceImpl implements RagStorageService {
 
         if (response.getMetrics() != null) {
             metadata.put("totalRuns", response.getMetrics().getTotalRuns());
-            metadata.put("totalDistanceKm", response.getMetrics().getTotalDistanceKm());
+            metadata.put("totalDistanceMiles", response.getMetrics().getTotalDistanceMiles());
             metadata.put("totalDuration", response.getMetrics().getTotalDuration());
-            metadata.put("averagePace", response.getMetrics().getAveragePaceMinPerKm());
+            metadata.put("averagePace", response.getMetrics().getAveragePaceMinPerMile());
             metadata.put("averageHeartRate", response.getMetrics().getAverageHeartRate());
             metadata.put("totalCalories", response.getMetrics().getTotalCalories());
         }
@@ -240,7 +240,7 @@ public class RagStorageServiceImpl implements RagStorageService {
     }
 
     @Override
-    public List<RunAnalysisDocument> findAnalysesByMinimumDistance(Double minDistanceKm) {
-        return documentRepository.findByMinimumDistance(minDistanceKm);
+    public List<RunAnalysisDocument> findAnalysesByMinimumDistance(Double minDistanceMiles) {
+        return documentRepository.findByMinimumDistance(minDistanceMiles);
     }
 }

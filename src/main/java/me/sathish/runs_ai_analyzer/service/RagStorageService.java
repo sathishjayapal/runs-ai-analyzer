@@ -30,5 +30,5 @@ public interface RagStorageService {
 
     List<RunAnalysisDocument> findAnalysesByActivityId(String activityId);
 
-    List<RunAnalysisDocument> findAnalysesByMinimumDistance(Double minDistanceKm);
+    List<RunAnalysisDocument> findAnalysesByMinimumDistance(Double minDistanceMiles);
 }

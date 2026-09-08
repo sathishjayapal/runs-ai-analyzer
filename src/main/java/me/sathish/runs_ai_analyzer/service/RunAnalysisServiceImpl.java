@@ -50,6 +50,8 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
             - Base your analysis only on the supplied running data and derived metrics.
             """;
 
+    private static final double KM_TO_MILES = 0.621371;
+
     private final ChatClient anthropicChatClient;
     private final ChatClient ollamaChatClient;
     private final RagStorageService ragStorageService;
@@ -150,9 +152,9 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
 
         PerformanceMetrics metrics = PerformanceMetrics.builder()
                 .totalRuns(readInt(metadata, "totalRuns", cachedDoc.getTotalRuns() != null ? cachedDoc.getTotalRuns() : runs.size()))
-                .totalDistanceKm(readDouble(metadata, "totalDistanceKm", cachedDoc.getTotalDistanceKm() != null ? cachedDoc.getTotalDistanceKm() : 0.0))
+                .totalDistanceMiles(readDouble(metadata, "totalDistanceMiles", cachedDoc.getTotalDistanceMiles() != null ? cachedDoc.getTotalDistanceMiles() : 0.0))
                 .totalDuration(readString(metadata, "totalDuration"))
-                .averagePaceMinPerKm(readNullableDouble(metadata, "averagePace"))
+                .averagePaceMinPerMile(readNullableDouble(metadata, "averagePace"))
                 .averageHeartRate(readNullableInt(metadata, "averageHeartRate"))
                 .totalCalories(readNullableInt(metadata, "totalCalories"))
                 .build();
@@ -302,16 +304,16 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
         List<RunInsight> insights = new ArrayList<>();
         insights.add(RunInsight.builder()
                 .category("Volume")
-                .observation("Analyzed %d running activities covering %.2f km.".formatted(
-                        metrics.getTotalRuns(), metrics.getTotalDistanceKm()))
+                .observation("Analyzed %d running activities covering %.2f mi.".formatted(
+                        metrics.getTotalRuns(), metrics.getTotalDistanceMiles()))
                 .recommendation("Keep weekly volume steady before increasing distance or intensity.")
                 .build());
 
-        if (metrics.getAveragePaceMinPerKm() != null) {
+        if (metrics.getAveragePaceMinPerMile() != null) {
             insights.add(RunInsight.builder()
                     .category("Pace")
-                    .observation("Average pace across the analyzed block was %.2f min/km.".formatted(
-                            metrics.getAveragePaceMinPerKm()))
+                    .observation("Average pace across the analyzed block was %.2f min/mi.".formatted(
+                            metrics.getAveragePaceMinPerMile()))
                     .recommendation("Review your easiest sessions and keep them controlled enough to support recovery.")
                     .build());
         }
@@ -351,7 +353,9 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
             sb.append("Run #").append(i + 1).append(":\n");
             sb.append("  - Date: ").append(run.getActivityDate()).append('\n');
             sb.append("  - Name: ").append(run.getActivityName()).append('\n');
-            sb.append("  - Distance: ").append(run.getDistance()).append(" km\n");
+            sb.append("  - Distance: ")
+                    .append(String.format("%.2f", parseDouble(run.getDistance()) * KM_TO_MILES))
+                    .append(" mi\n");
             sb.append("  - Duration: ").append(run.getElapsedTime()).append('\n');
             if (run.getMaxHeartRate() != null) {
                 sb.append("  - Max Heart Rate: ").append(run.getMaxHeartRate()).append(" bpm\n");
@@ -371,16 +375,16 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
     private String formatMetricsForPrompt(PerformanceMetrics metrics) {
         return """
                 - Total runs: %d
-                - Total distance: %.2f km
+                - Total distance: %.2f mi
                 - Total duration: %s
-                - Average pace: %s min/km
+                - Average pace: %s min/mi
                 - Average max heart rate: %s bpm
                 - Total calories: %s
                 """.formatted(
                 metrics.getTotalRuns(),
-                metrics.getTotalDistanceKm(),
+                metrics.getTotalDistanceMiles(),
                 metrics.getTotalDuration(),
-                metrics.getAveragePaceMinPerKm() != null ? metrics.getAveragePaceMinPerKm() : "n/a",
+                metrics.getAveragePaceMinPerMile() != null ? metrics.getAveragePaceMinPerMile() : "n/a",
                 metrics.getAverageHeartRate() != null ? metrics.getAverageHeartRate() : "n/a",
                 metrics.getTotalCalories() != null ? metrics.getTotalCalories() : "n/a");
     }
@@ -394,7 +398,8 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
                 .mapToLong(r -> parseTimeToSeconds(r.getElapsedTime()))
                 .sum();
 
-        Double avgPace = totalDistance > 0 ? (totalSeconds / 60.0) / totalDistance : null;
+        double totalDistanceMiles = totalDistance * KM_TO_MILES;
+        Double avgPaceMinPerMile = totalDistanceMiles > 0 ? (totalSeconds / 60.0) / totalDistanceMiles : null;
 
         Integer avgHr = runs.stream()
                 .filter(r -> r.getMaxHeartRate() != null)
@@ -412,21 +417,21 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
 
         return PerformanceMetrics.builder()
                 .totalRuns(runs.size())
-                .totalDistanceKm(round(totalDistance))
+                .totalDistanceMiles(round(totalDistanceMiles))
                 .totalDuration(formatSecondsToTime(totalSeconds))
-                .averagePaceMinPerKm(avgPace != null ? round(avgPace) : null)
+                .averagePaceMinPerMile(avgPaceMinPerMile != null ? round(avgPaceMinPerMile) : null)
                 .averageHeartRate(avgHr > 0 ? avgHr : null)
                 .totalCalories(totalCalories > 0 ? totalCalories : null)
                 .build();
     }
 
     private String generateSummary(PerformanceMetrics metrics) {
-        return "Analysis of %d running activities covering %.2f km in %s. Average pace: %s min/km."
+        return "Analysis of %d running activities covering %.2f mi in %s. Average pace: %s min/mi."
                 .formatted(
                         metrics.getTotalRuns(),
-                        metrics.getTotalDistanceKm(),
+                        metrics.getTotalDistanceMiles(),
                         metrics.getTotalDuration(),
-                        metrics.getAveragePaceMinPerKm() != null ? metrics.getAveragePaceMinPerKm() : "n/a");
+                        metrics.getAveragePaceMinPerMile() != null ? metrics.getAveragePaceMinPerMile() : "n/a");
     }
 
     private List<RunInsight> defaultInsights(List<RunInsight> insights) {

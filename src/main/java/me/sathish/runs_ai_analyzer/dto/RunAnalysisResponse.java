@@ -49,9 +49,9 @@ public class RunAnalysisResponse {
     @AllArgsConstructor
     public static class PerformanceMetrics {
         private int totalRuns;
-        private double totalDistanceKm;
+        private double totalDistanceMiles;
         private String totalDuration;
-        private Double averagePaceMinPerKm;
+        private Double averagePaceMinPerMile;
         private Integer averageHeartRate;
         private Integer totalCalories;
     }

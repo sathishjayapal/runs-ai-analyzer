@@ -89,9 +89,9 @@ class RagStorageServiceTest {
                 .confidenceScore(84)
                 .metrics(PerformanceMetrics.builder()
                         .totalRuns(2)
-                        .totalDistanceKm(12.5)
+                        .totalDistanceMiles(12.5)
                         .totalDuration("01:15:00")
-                        .averagePaceMinPerKm(6.0)
+                        .averagePaceMinPerMile(6.0)
                         .averageHeartRate(167)
                         .totalCalories(850)
                         .build())
@@ -109,7 +109,7 @@ class RagStorageServiceTest {
                 .analysisContent(testResponse.getRawAnalysis())
                 .summary(testResponse.getSummary())
                 .totalRuns(2)
-                .totalDistanceKm(12.5)
+                .totalDistanceMiles(12.5)
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -125,7 +125,7 @@ class RagStorageServiceTest {
         RunAnalysisDocument capturedDoc = documentCaptor.getValue();
         assertThat(capturedDoc.getActivityIds()).isEqualTo("ACT001,ACT002");
         assertThat(capturedDoc.getTotalRuns()).isEqualTo(2);
-        assertThat(capturedDoc.getTotalDistanceKm()).isEqualTo(12.5);
+        assertThat(capturedDoc.getTotalDistanceMiles()).isEqualTo(12.5);
         assertThat(capturedDoc.getMetadata()).containsEntry("structuredSummary", "Analysis of 2 runs covering 12.5 km");
         assertThat(capturedDoc.getMetadata()).containsEntry("confidenceScore", 84);
         assertThat(capturedDoc.getMetadata()).containsKey("insights");
@@ -148,7 +148,7 @@ class RagStorageServiceTest {
                 .analysisContent(testResponse.getRawAnalysis())
                 .summary(testResponse.getSummary())
                 .totalRuns(2)
-                .totalDistanceKm(12.5)
+                .totalDistanceMiles(12.5)
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -233,7 +233,7 @@ class RagStorageServiceTest {
     @Test
     void findAnalysesByMinimumDistance_shouldReturnMatchingDocuments() {
         List<RunAnalysisDocument> matchingDocs = List.of(
-                RunAnalysisDocument.builder().id(1L).totalDistanceKm(15.0).build()
+                RunAnalysisDocument.builder().id(1L).totalDistanceMiles(15.0).build()
         );
 
         when(documentRepository.findByMinimumDistance(10.0)).thenReturn(matchingDocs);
@@ -241,7 +241,7 @@ class RagStorageServiceTest {
         List<RunAnalysisDocument> results = ragStorageService.findAnalysesByMinimumDistance(10.0);
 
         assertThat(results).hasSize(1);
-        assertThat(results.get(0).getTotalDistanceKm()).isEqualTo(15.0);
+        assertThat(results.get(0).getTotalDistanceMiles()).isEqualTo(15.0);
     }
 
     @Test
