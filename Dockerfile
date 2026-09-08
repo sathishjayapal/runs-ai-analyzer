@@ -18,6 +18,9 @@ RUN mvn package -DskipTests -B
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
+# Patch OS-level packages (OpenSSL etc.) — matches runs-app standards
+RUN apk update && apk upgrade --no-cache
+
 # Create non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
