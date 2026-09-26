@@ -17,8 +17,11 @@ spring:
         streamable-http:
           connections:
             diagram-maker:
-              url: ${DIAGRAM_MAKER_BASE_URL:http://localhost:8091}
+              url: ${diagram-maker.base-url}
               endpoint: /mcp
+
+diagram-maker:
+  base-url: ${DIAGRAM_MAKER_BASE_URL:http://localhost:8091}
 
 # Note: Most configuration is loaded from Spring Cloud Config Server.
 # Flyway is configured here (not config server) because Spring Boot 4.x evaluates
