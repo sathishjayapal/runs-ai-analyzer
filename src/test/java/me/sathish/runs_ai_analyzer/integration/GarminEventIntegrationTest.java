@@ -18,6 +18,7 @@ import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -71,7 +72,7 @@ class GarminEventIntegrationTest {
         event.setEventType("GARMIN_CSV_RUN");
         event.setActivityId("test-activity-123");
         event.setActivityName("Morning Run");
-        event.setActivityDate(LocalDateTime.now());
+        event.setActivityDate(Instant.now());
         event.setDistance("5.5");
         event.setElapsedTime("00:28:30");
         event.setDatabaseId(1001L);
