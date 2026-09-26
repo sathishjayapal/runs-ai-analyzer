@@ -8,6 +8,17 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     locations: classpath:db/migration
+  ai:
+    mcp:
+      client:
+        enabled: ${DIAGRAM_MAKER_MCP_ENABLED:false}
+        type: SYNC
+        request-timeout: 60s
+        streamable-http:
+          connections:
+            diagram-maker:
+              url: ${DIAGRAM_MAKER_BASE_URL:http://localhost:8091}
+              endpoint: /mcp
 
 # Note: Most configuration is loaded from Spring Cloud Config Server.
 # Flyway is configured here (not config server) because Spring Boot 4.x evaluates
