@@ -6,14 +6,22 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import me.sathish.runs_ai_analyzer.dto.DiagramArtifact;
+import me.sathish.runs_ai_analyzer.dto.DiagramGenerationRequest;
 import me.sathish.runs_ai_analyzer.dto.GarminRunDataDTO;
 import me.sathish.runs_ai_analyzer.dto.RunAnalysisRequest;
 import me.sathish.runs_ai_analyzer.dto.RunAnalysisResponse;
 import me.sathish.runs_ai_analyzer.entity.AnalysisJob;
 import me.sathish.runs_ai_analyzer.service.AnalysisJobService;
+import me.sathish.runs_ai_analyzer.service.DiagramArtifactClient;
+import me.sathish.runs_ai_analyzer.service.DiagramGenerationException;
+import me.sathish.runs_ai_analyzer.service.DiagramMakerMcpClient;
 import me.sathish.runs_ai_analyzer.service.RunAnalysisService;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpStatusCodeException;
 
 import java.util.List;
 import java.util.Map;
@@ -28,6 +36,8 @@ public class RunAnalysisController {
 
     private final RunAnalysisService runAnalysisService;
     private final AnalysisJobService analysisJobService;
+    private final DiagramMakerMcpClient diagramMakerMcpClient;
+    private final DiagramArtifactClient diagramArtifactClient;
 
     @PostMapping("/analyze")
     @Operation(
@@ -122,6 +132,42 @@ public class RunAnalysisController {
                             .body(Map.of("status", job.getStatus(), "message", "Analysis not yet complete"));
                 })
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/{documentId}/diagram")
+    @Operation(summary = "Generate a diagram for a completed analysis through Diagram Maker MCP")
+    @ApiResponse(responseCode = "200", description = "Diagram generated successfully")
+    @ApiResponse(responseCode = "502", description = "Diagram Maker MCP invocation failed")
+    public ResponseEntity<?> generateAnalysisDiagram(
+            @PathVariable UUID documentId,
+            @RequestBody(required = false) DiagramGenerationRequest request) {
+        try {
+            DiagramGenerationRequest effectiveRequest = request != null
+                    ? request
+                    : DiagramGenerationRequest.builder().build();
+            DiagramArtifact artifact = diagramMakerMcpClient.generateAnalysisDiagram(documentId, effectiveRequest);
+            return ResponseEntity.ok(artifact);
+        } catch (DiagramGenerationException e) {
+            log.warn("Diagram generation failed for documentId={}: {}", documentId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage(), "documentId", documentId));
+        }
+    }
+
+    @GetMapping(value = "/diagrams/{fileName}", produces = {
+            MediaType.IMAGE_PNG_VALUE,
+            MediaType.IMAGE_JPEG_VALUE,
+            "image/svg+xml"
+    })
+    public ResponseEntity<?> downloadDiagram(@PathVariable String fileName) {
+        try {
+            return diagramArtifactClient.download(fileName);
+        } catch (HttpStatusCodeException e) {
+            return ResponseEntity.status(e.getStatusCode()).body(e.getResponseBodyAsByteArray());
+        } catch (Exception e) {
+            log.error("Diagram download failed for {}: {}", fileName, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        }
     }
 
     @PostMapping("/analyze/single")

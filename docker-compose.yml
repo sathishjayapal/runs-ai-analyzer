@@ -1,16 +1,23 @@
+# Standalone compose for runs-ai-analyzer — DB values match the shared
+# consolidated-postgres/compose/docker-compose-local.yml `runs-ai-analyzer-db`
+# service (canonical; that's what dev-up.sh starts). Use this when you only need
+# this project's DB + Ollama by itself:
+#   docker compose up -d
+# Reads RUNS_AI_ANALYZER_DB_* from ./.env (created by dev-up.sh).
 services:
   postgres:
+    container_name: runs-ai-analyzer-db
     image: pgvector/pgvector:pg17
     environment:
-      - POSTGRES_DB=${RUNS_AI_ANALYZER_DB_NAME:-runs-ai-analyzer}
-      - POSTGRES_USER=${RUNS_AI_ANALYZER_DB_USER}
-      - POSTGRES_PASSWORD=${RUNS_AI_ANALYZER_DB_PASSWORD}
+      - POSTGRES_DB=${RUNS_AI_ANALYZER_DB_NAME:-runs_ai_analyzer_db}
+      - POSTGRES_USER=${RUNS_AI_ANALYZER_DB_USER:?set in .env}
+      - POSTGRES_PASSWORD=${RUNS_AI_ANALYZER_DB_PASSWORD:?set in .env}
     ports:
       - 5444:5432
     volumes:
-      - pgvector_data:/var/lib/postgresql/data
+      - runs_ai_shared_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${RUNS_AI_ANALYZER_DB_USER} -d runs-ai-analyzer" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${RUNS_AI_ANALYZER_DB_USER} -d ${RUNS_AI_ANALYZER_DB_NAME:-runs_ai_analyzer_db}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,7 +52,7 @@ services:
 #    ports:
 #      - 8081:8081
 #    environment:
-#      - RAG_RUNS_AI_JDBC_DATABASE_URL=jdbc:postgresql://postgres:5432/runs-ai-analyzer
+#      - RAG_RUNS_AI_JDBC_DATABASE_URL=jdbc:postgresql://postgres:5432/runs_ai_analyzer_db
 #      - JDBC_DATABASE_USERNAME=
 #      - JDBC_DATABASE_PASSWORD=
 #      - OLLAMA_BASE_URL=http://ollama:11434
@@ -57,5 +64,5 @@ services:
 #        condition: service_healthy
 
 volumes:
-  pgvector_data:
+  runs_ai_shared_pg_data:
   ollama_data:
