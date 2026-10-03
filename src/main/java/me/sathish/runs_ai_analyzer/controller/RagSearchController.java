@@ -76,7 +76,7 @@ public class RagSearchController {
     @ApiResponse(responseCode = "404", description = "Document not found")
     public ResponseEntity<RunAnalysisDocument> getAnalysisByDocumentId(
             @PathVariable UUID documentId) {
-        log.info("Fetching analysis document: {}", documentId);
+        log.error("Fetching analysis document: {}", documentId);
         return ragStorageService.findByDocumentId(documentId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
