@@ -11,18 +11,30 @@ import java.util.UUID;
 
 public interface RagStorageService {
 
-    RunAnalysisDocument storeAnalysis(List<GarminRunDataDTO> runs, RunAnalysisResponse response, String queryText);
+    /**
+     * @param cacheKey exact-match key for the LLM input (see {@link RunAnalysisServiceImpl}); may be null
+     */
+    RunAnalysisDocument storeAnalysis(List<GarminRunDataDTO> runs, RunAnalysisResponse response,
+                                      String queryText, String cacheKey);
 
     List<Document> searchSimilarAnalyses(String query, int topK);
 
     /**
-     * Find a cached analysis that is similar enough to the given query.
-     * Returns the cached RunAnalysisDocument if similarity meets threshold and is not stale.
+     * Find a cached analysis for exactly the same LLM input.
+     * Only non-evicted analyses created within the TTL are returned.
      *
-     * @param queryText the query text to search for
+     * @param cacheKey SHA-256 of the system prompt and run data
      * @return Optional containing the cached analysis if found and valid
      */
-    Optional<RunAnalysisDocument> findCachedAnalysis(String queryText);
+    Optional<RunAnalysisDocument> findCachedAnalysis(String cacheKey);
+
+    /**
+     * Evicts all cached analyses so the next request goes to the LLM.
+     * Called when runs-app reports new or updated runs. Documents stay available for RAG search.
+     *
+     * @return number of analyses evicted
+     */
+    int evictCachedAnalyses();
 
     Optional<RunAnalysisDocument> findByDocumentId(UUID documentId);
 

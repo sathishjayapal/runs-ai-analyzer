@@ -25,7 +25,6 @@ spring:
 rag:
   cache:
     enabled: true
-    similarity-threshold: 0.85
     ttl-days: 7
 
 logging:

@@ -53,6 +53,20 @@ public class RunAnalysisDocument {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * SHA-256 of the exact LLM input (system prompt + run data). Null for rows created
+     * before V003, which are therefore never served from cache.
+     */
+    @Column(name = "cache_key", length = 64)
+    private String cacheKey;
+
+    /**
+     * Set when new or updated runs arrive from runs-app. An evicted row is kept for RAG
+     * search but is no longer returned as a cache hit.
+     */
+    @Column(name = "cache_evicted_at")
+    private LocalDateTime cacheEvictedAt;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) {

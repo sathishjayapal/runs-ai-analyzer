@@ -35,7 +35,8 @@ public class RagStorageServiceImpl implements RagStorageService {
 
     @Override
     @Transactional
-    public RunAnalysisDocument storeAnalysis(List<GarminRunDataDTO> runs, RunAnalysisResponse response, String queryText) {
+    public RunAnalysisDocument storeAnalysis(List<GarminRunDataDTO> runs, RunAnalysisResponse response,
+                                             String queryText, String cacheKey) {
         log.debug("Storing analysis for {} runs in RAG database", runs.size());
 
         UUID documentId = UUID.randomUUID();
@@ -55,6 +56,7 @@ public class RagStorageServiceImpl implements RagStorageService {
                 .totalRuns(response.getMetrics() != null ? response.getMetrics().getTotalRuns() : runs.size())
                 .totalDistanceMiles(response.getMetrics() != null ? response.getMetrics().getTotalDistanceMiles() : null)
                 .metadata(metadata)
+                .cacheKey(cacheKey)
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -161,62 +163,45 @@ public class RagStorageServiceImpl implements RagStorageService {
     }
 
     @Override
-    public Optional<RunAnalysisDocument> findCachedAnalysis(String queryText) {
+    public Optional<RunAnalysisDocument> findCachedAnalysis(String cacheKey) {
         if (!cacheProperties.isEnabled()) {
             log.debug("RAG cache is disabled, skipping cache lookup");
             return Optional.empty();
         }
-
-        log.debug("Searching for cached analysis with similarity threshold: {}", 
-                cacheProperties.getSimilarityThreshold());
-
-        try {
-            SearchRequest searchRequest = SearchRequest.builder()
-                    .query(queryText)
-                    .topK(1)
-                    .similarityThreshold(cacheProperties.getSimilarityThreshold())
-                    .build();
-
-            List<Document> results = vectorStore.similaritySearch(searchRequest);
-
-            if (results.isEmpty()) {
-                log.debug("No cached analysis found above similarity threshold");
-                return Optional.empty();
-            }
-
-            Document topResult = results.getFirst();
-            String documentIdStr = (String) topResult.getMetadata().get("documentId");
-            
-            if (documentIdStr == null) {
-                log.warn("Found similar document but missing documentId in metadata");
-                return Optional.empty();
-            }
-
-            UUID documentId = UUID.fromString(documentIdStr);
-            Optional<RunAnalysisDocument> cachedDoc = documentRepository.findByDocumentId(documentId);
-
-            if (cachedDoc.isEmpty()) {
-                log.warn("Document ID {} found in vector store but not in database", documentId);
-                return Optional.empty();
-            }
-
-            RunAnalysisDocument document = cachedDoc.get();
-            
-            // Check if document is stale
-            LocalDateTime staleThreshold = LocalDateTime.now().minusDays(cacheProperties.getTtlDays());
-            if (document.getCreatedAt().isBefore(staleThreshold)) {
-                log.debug("Cached analysis is stale (created: {}, threshold: {})", 
-                        document.getCreatedAt(), staleThreshold);
-                return Optional.empty();
-            }
-
-            log.info("Found valid cached analysis with document ID: {}", documentId);
-            return cachedDoc;
-
-        } catch (Exception e) {
-            log.error("Error searching for cached analysis: {}", e.getMessage(), e);
+        if (cacheKey == null || cacheKey.isBlank()) {
             return Optional.empty();
         }
+
+        try {
+            LocalDateTime ttlCutoff = LocalDateTime.now().minusDays(cacheProperties.getTtlDays());
+            Optional<RunAnalysisDocument> cached = documentRepository
+                    .findFirstByCacheKeyAndCacheEvictedAtIsNullAndCreatedAtAfterOrderByCreatedAtDesc(cacheKey, ttlCutoff);
+
+            if (cached.isPresent()) {
+                log.info("Cache hit for run analysis (documentId={}, cacheKey={})",
+                        cached.get().getDocumentId(), shortKey(cacheKey));
+            } else {
+                log.debug("Cache miss for run analysis (cacheKey={})", shortKey(cacheKey));
+            }
+            return cached;
+        } catch (Exception e) {
+            log.error("Error looking up cached analysis: {}", e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    @Transactional
+    public int evictCachedAnalyses() {
+        int evicted = documentRepository.evictAllCachedAnalyses(LocalDateTime.now());
+        if (evicted > 0) {
+            log.info("Evicted {} cached run analysis document(s)", evicted);
+        }
+        return evicted;
+    }
+
+    private static String shortKey(String cacheKey) {
+        return cacheKey.length() > 12 ? cacheKey.substring(0, 12) : cacheKey;
     }
 
     @Override

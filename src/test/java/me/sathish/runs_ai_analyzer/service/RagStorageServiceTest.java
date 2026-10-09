@@ -28,10 +28,14 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class RagStorageServiceTest {
+
+    private static final String CACHE_KEY = "a".repeat(64);
 
     @Mock
     private RunAnalysisDocumentRepository documentRepository;
@@ -116,13 +120,15 @@ class RagStorageServiceTest {
         when(documentRepository.save(any(RunAnalysisDocument.class))).thenReturn(savedDocument);
         doNothing().when(vectorStore).add(anyList());
 
-        RunAnalysisDocument result = ragStorageService.storeAnalysis(testRuns, testResponse, "test query");
+        RunAnalysisDocument result = ragStorageService.storeAnalysis(testRuns, testResponse, "test query", CACHE_KEY);
 
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
 
         verify(documentRepository).save(documentCaptor.capture());
         RunAnalysisDocument capturedDoc = documentCaptor.getValue();
+        assertThat(capturedDoc.getCacheKey()).isEqualTo(CACHE_KEY);
+        assertThat(capturedDoc.getCacheEvictedAt()).isNull();
         assertThat(capturedDoc.getActivityIds()).isEqualTo("ACT001,ACT002");
         assertThat(capturedDoc.getTotalRuns()).isEqualTo(2);
         assertThat(capturedDoc.getTotalDistanceMiles()).isEqualTo(12.5);
@@ -155,7 +161,7 @@ class RagStorageServiceTest {
         when(documentRepository.save(any(RunAnalysisDocument.class))).thenReturn(savedDocument);
         doThrow(new RuntimeException("Vector store error")).when(vectorStore).add(anyList());
 
-        RunAnalysisDocument result = ragStorageService.storeAnalysis(testRuns, testResponse, "test query");
+        RunAnalysisDocument result = ragStorageService.storeAnalysis(testRuns, testResponse, "test query", null);
 
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
@@ -248,92 +254,84 @@ class RagStorageServiceTest {
     void findCachedAnalysis_shouldReturnEmptyWhenCacheDisabled() {
         when(cacheProperties.isEnabled()).thenReturn(false);
 
-        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis("test query");
+        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis(CACHE_KEY);
 
         assertThat(result).isEmpty();
-        verifyNoInteractions(vectorStore);
+        verifyNoInteractions(documentRepository, vectorStore);
     }
 
     @Test
-    void findCachedAnalysis_shouldReturnCachedDocumentWhenSimilarAndFresh() {
+    void findCachedAnalysis_shouldReturnEmptyWhenCacheKeyMissing() {
+        when(cacheProperties.isEnabled()).thenReturn(true);
+
+        assertThat(ragStorageService.findCachedAnalysis(null)).isEmpty();
+        assertThat(ragStorageService.findCachedAnalysis(" ")).isEmpty();
+        verifyNoInteractions(documentRepository, vectorStore);
+    }
+
+    @Test
+    void findCachedAnalysis_shouldReturnDocumentForExactKeyWithinTtl() {
         UUID documentId = UUID.randomUUID();
         when(cacheProperties.isEnabled()).thenReturn(true);
-        when(cacheProperties.getSimilarityThreshold()).thenReturn(0.85);
         when(cacheProperties.getTtlDays()).thenReturn(7);
-
-        Document vectorDoc = new Document("doc-id", "content", Map.of("documentId", documentId.toString()));
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(vectorDoc));
 
         RunAnalysisDocument cachedDoc = RunAnalysisDocument.builder()
                 .id(1L)
                 .documentId(documentId)
+                .cacheKey(CACHE_KEY)
                 .summary("Cached summary")
                 .createdAt(LocalDateTime.now().minusDays(1))
                 .build();
-        when(documentRepository.findByDocumentId(documentId)).thenReturn(Optional.of(cachedDoc));
+        when(documentRepository.findFirstByCacheKeyAndCacheEvictedAtIsNullAndCreatedAtAfterOrderByCreatedAtDesc(
+                eq(CACHE_KEY), any(LocalDateTime.class))).thenReturn(Optional.of(cachedDoc));
 
-        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis("test query");
+        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis(CACHE_KEY);
 
         assertThat(result).isPresent();
         assertThat(result.get().getDocumentId()).isEqualTo(documentId);
+
+        ArgumentCaptor<LocalDateTime> ttlCutoff = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(documentRepository).findFirstByCacheKeyAndCacheEvictedAtIsNullAndCreatedAtAfterOrderByCreatedAtDesc(
+                eq(CACHE_KEY), ttlCutoff.capture());
+        LocalDateTime expectedCutoff = LocalDateTime.now().minusDays(7);
+        assertThat(ttlCutoff.getValue()).isBetween(expectedCutoff.minusMinutes(1), expectedCutoff.plusMinutes(1));
+
+        // Cache lookup is an exact key match; it must not depend on vector similarity.
+        verifyNoInteractions(vectorStore);
     }
 
     @Test
-    void findCachedAnalysis_shouldReturnEmptyWhenNoSimilarDocuments() {
+    void findCachedAnalysis_shouldReturnEmptyWhenNoAnalysisForKey() {
         when(cacheProperties.isEnabled()).thenReturn(true);
-        when(cacheProperties.getSimilarityThreshold()).thenReturn(0.85);
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
-
-        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis("test query");
-
-        assertThat(result).isEmpty();
-    }
-
-    @Test
-    void findCachedAnalysis_shouldReturnEmptyWhenDocumentIsStale() {
-        UUID documentId = UUID.randomUUID();
-        when(cacheProperties.isEnabled()).thenReturn(true);
-        when(cacheProperties.getSimilarityThreshold()).thenReturn(0.85);
         when(cacheProperties.getTtlDays()).thenReturn(7);
+        when(documentRepository.findFirstByCacheKeyAndCacheEvictedAtIsNullAndCreatedAtAfterOrderByCreatedAtDesc(
+                anyString(), any(LocalDateTime.class))).thenReturn(Optional.empty());
 
-        Document vectorDoc = new Document("doc-id", "content", Map.of("documentId", documentId.toString()));
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(vectorDoc));
-
-        RunAnalysisDocument staleDoc = RunAnalysisDocument.builder()
-                .id(1L)
-                .documentId(documentId)
-                .summary("Stale summary")
-                .createdAt(LocalDateTime.now().minusDays(10))
-                .build();
-        when(documentRepository.findByDocumentId(documentId)).thenReturn(Optional.of(staleDoc));
-
-        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis("test query");
+        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis(CACHE_KEY);
 
         assertThat(result).isEmpty();
     }
 
     @Test
-    void findCachedAnalysis_shouldReturnEmptyOnVectorStoreError() {
+    void findCachedAnalysis_shouldReturnEmptyOnRepositoryError() {
         when(cacheProperties.isEnabled()).thenReturn(true);
-        when(cacheProperties.getSimilarityThreshold()).thenReturn(0.85);
-        when(vectorStore.similaritySearch(any(SearchRequest.class)))
-                .thenThrow(new RuntimeException("Vector store error"));
+        when(cacheProperties.getTtlDays()).thenReturn(7);
+        when(documentRepository.findFirstByCacheKeyAndCacheEvictedAtIsNullAndCreatedAtAfterOrderByCreatedAtDesc(
+                anyString(), any(LocalDateTime.class))).thenThrow(new RuntimeException("Database error"));
 
-        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis("test query");
+        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis(CACHE_KEY);
 
         assertThat(result).isEmpty();
     }
 
     @Test
-    void findCachedAnalysis_shouldReturnEmptyWhenDocumentIdMissingInMetadata() {
-        when(cacheProperties.isEnabled()).thenReturn(true);
-        when(cacheProperties.getSimilarityThreshold()).thenReturn(0.85);
+    void evictCachedAnalyses_shouldEvictAllActiveCacheEntries() {
+        when(documentRepository.evictAllCachedAnalyses(any(LocalDateTime.class))).thenReturn(3);
 
-        Document vectorDoc = new Document("doc-id", "content", Map.of("otherKey", "value"));
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(vectorDoc));
+        int evicted = ragStorageService.evictCachedAnalyses();
 
-        Optional<RunAnalysisDocument> result = ragStorageService.findCachedAnalysis("test query");
-
-        assertThat(result).isEmpty();
+        assertThat(evicted).isEqualTo(3);
+        verify(documentRepository).evictAllCachedAnalyses(any(LocalDateTime.class));
+        verifyNoInteractions(vectorStore);
     }
 }

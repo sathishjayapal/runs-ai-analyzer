@@ -2,6 +2,7 @@ package me.sathish.runs_ai_analyzer.repository;
 
 import me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -15,6 +16,22 @@ import java.util.UUID;
 public interface RunAnalysisDocumentRepository extends JpaRepository<RunAnalysisDocument, Long> {
 
     Optional<RunAnalysisDocument> findByDocumentId(UUID documentId);
+
+    /**
+     * Newest non-evicted analysis for an exact cache key, created after the TTL cutoff.
+     */
+    Optional<RunAnalysisDocument> findFirstByCacheKeyAndCacheEvictedAtIsNullAndCreatedAtAfterOrderByCreatedAtDesc(
+            String cacheKey, LocalDateTime createdAfter);
+
+    /**
+     * Marks every currently cacheable analysis as evicted. Rows are kept for RAG search.
+     *
+     * @return number of analyses evicted
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE RunAnalysisDocument r SET r.cacheEvictedAt = :evictedAt "
+            + "WHERE r.cacheKey IS NOT NULL AND r.cacheEvictedAt IS NULL")
+    int evictAllCachedAnalyses(@Param("evictedAt") LocalDateTime evictedAt);
 
     List<RunAnalysisDocument> findByCreatedAtAfterOrderByCreatedAtDesc(LocalDateTime after);
 

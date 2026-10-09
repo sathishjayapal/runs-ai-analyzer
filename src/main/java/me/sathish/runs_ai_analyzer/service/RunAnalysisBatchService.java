@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
@@ -47,8 +46,9 @@ public class RunAnalysisBatchService {
         log.debug("Added event to pending queue: key={}, queueSize={}", key, pendingEvents.size());
     }
 
+    // Not @Transactional: analyzeRuns calls the LLM, and a failed query inside one shared
+    // transaction would roll back the stored analysis. Status updates save individually.
     @Scheduled(fixedDelayString = "${analysis.batch.interval-ms:30000}")
-    @Transactional
     public void processBatch() {
         if (pendingEvents.isEmpty()) {
             return;

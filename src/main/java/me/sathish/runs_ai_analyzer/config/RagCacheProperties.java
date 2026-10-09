@@ -10,19 +10,14 @@ import org.springframework.context.annotation.Configuration;
 public class RagCacheProperties {
 
     /**
-     * Similarity threshold (0.0 to 1.0) for considering a cached analysis as a match.
-     * Higher values require more similar matches.
-     */
-    private double similarityThreshold = 0.85;
-
-    /**
      * Time-to-live in days for cached analyses.
      * Analyses older than this are considered stale.
      */
     private int ttlDays = 7;
 
     /**
-     * Whether RAG caching is enabled.
+     * Whether the run-analysis cache is enabled. Cache hits require an exact match on
+     * the LLM input (see RunAnalysisDocument.cacheKey); there is no similarity matching.
      */
     private boolean enabled = true;
 }

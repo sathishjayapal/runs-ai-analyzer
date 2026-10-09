@@ -33,8 +33,13 @@ public class AnalysisJobService {
         return jobRepository.save(job);
     }
 
+    /**
+     * Deliberately NOT @Transactional. The LLM call takes seconds to minutes, and one shared
+     * transaction meant any failed query (e.g. the cache lookup) marked it rollback-only, so the
+     * analysis could not be stored and the job ended in UnexpectedRollbackException.
+     * Each repository call below runs in its own short transaction instead.
+     */
     @Async
-    @Transactional
     public void runAnalysisAsync(UUID jobId, List<GarminRunDataDTO> runs, boolean forceRefresh) {
         log.info("Starting async analysis for jobId={}", jobId);
 

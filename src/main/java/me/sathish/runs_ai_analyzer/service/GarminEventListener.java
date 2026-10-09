@@ -22,6 +22,7 @@ public class GarminEventListener {
 
     private final AnalysisProcessingLogRepository processingLogRepository;
     private final RunAnalysisBatchService batchService;
+    private final RagStorageService ragStorageService;
     private final ObjectMapper objectMapper;
 
     @RabbitListener(queues = RabbitMQListenerConfiguration.ANALYZER_QUEUE)
@@ -48,7 +49,17 @@ public class GarminEventListener {
             return;
         }
 
-        if (isAlreadyProcessed(event)) {
+        boolean alreadyProcessed = isAlreadyProcessed(event);
+
+        // New or changed run data means any cached "Analyze My Runs" result is out of date.
+        // UPDATED events evict even if this activity was processed before, because its data changed.
+        if (!alreadyProcessed || "UPDATED".equals(event.getStatus())) {
+            int evicted = ragStorageService.evictCachedAnalyses();
+            log.debug("Run data changed (activityId={}, status={}); evicted {} cached analysis document(s)",
+                    event.getActivityId(), event.getStatus(), evicted);
+        }
+
+        if (alreadyProcessed) {
             log.debug("Event already processed (idempotency check): activityId={}, dbId={}", 
                     event.getActivityId(), event.getDatabaseId());
             return;

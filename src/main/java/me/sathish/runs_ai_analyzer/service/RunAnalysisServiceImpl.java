@@ -12,8 +12,12 @@ import me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument;
 import me.sathish.runs_ai_analyzer.service.ai.AiProviderChain;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
@@ -94,17 +98,19 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
 
         String queryText = formatRunDataForAi(runningActivities);
         PerformanceMetrics metrics = calculateMetrics(runningActivities);
+        String userPrompt = buildUserPrompt(metrics, queryText);
+        String cacheKey = buildCacheKey(SYSTEM_PROMPT, userPrompt);
 
         if (!forceRefresh) {
-            RunAnalysisResponse cachedResponse = tryGetCachedAnalysis(queryText, runningActivities);
+            RunAnalysisResponse cachedResponse = tryGetCachedAnalysis(cacheKey, runningActivities);
             if (cachedResponse != null) {
                 eventPublisher.publishAnalysisCompleted(cachedResponse, runningActivities);
                 return cachedResponse;
             }
         }
 
-        log.info("Generating fresh AI analysis for {} runs", runningActivities.size());
-        String aiAnalysis = getAiAnalysis(runningActivities, metrics);
+        log.info("Generating fresh AI analysis for {} runs (forceRefresh={})", runningActivities.size(), forceRefresh);
+        String aiAnalysis = aiProviderChain.call(SYSTEM_PROMPT, userPrompt);
         AiStructuredAnalysis structuredAnalysis = toStructuredAnalysis(aiAnalysis, metrics, runningActivities);
 
         RunAnalysisResponse response = RunAnalysisResponse.builder()
@@ -120,7 +126,7 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
                 .cachedResult(false)
                 .build();
 
-        RunAnalysisDocument savedDocument = storeAnalysisInRag(runningActivities, response, queryText);
+        RunAnalysisDocument savedDocument = storeAnalysisInRag(runningActivities, response, queryText, cacheKey);
         if (savedDocument != null) {
             response.setDocumentId(savedDocument.getDocumentId());
         }
@@ -129,9 +135,25 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
         return response;
     }
 
-    private RunAnalysisResponse tryGetCachedAnalysis(String queryText, List<GarminRunDataDTO> runs) {
+    /**
+     * Exact-match cache key: SHA-256 over the full LLM input. A new run, an edited run,
+     * or a prompt change all produce a different key, so stale analyses are never reused.
+     */
+    static String buildCacheKey(String systemPrompt, String userPrompt) {
         try {
-            var cachedDoc = ragStorageService.findCachedAnalysis(queryText);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(systemPrompt.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(userPrompt.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
+    }
+
+    private RunAnalysisResponse tryGetCachedAnalysis(String cacheKey, List<GarminRunDataDTO> runs) {
+        try {
+            var cachedDoc = ragStorageService.findCachedAnalysis(cacheKey);
             if (cachedDoc.isPresent()) {
                 log.info("Using cached RAG analysis (documentId={})", cachedDoc.get().getDocumentId());
                 return convertCachedDocumentToResponse(cachedDoc.get(), runs);
@@ -169,9 +191,10 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
                 .build();
     }
 
-    private RunAnalysisDocument storeAnalysisInRag(List<GarminRunDataDTO> runs, RunAnalysisResponse response, String queryText) {
+    private RunAnalysisDocument storeAnalysisInRag(List<GarminRunDataDTO> runs, RunAnalysisResponse response,
+                                                   String queryText, String cacheKey) {
         try {
-            RunAnalysisDocument saved = ragStorageService.storeAnalysis(runs, response, queryText);
+            RunAnalysisDocument saved = ragStorageService.storeAnalysis(runs, response, queryText, cacheKey);
             log.info("Stored analysis in RAG database for {} runs", runs.size());
             return saved;
         } catch (Exception e) {
@@ -185,10 +208,8 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
         return runs.stream().anyMatch(run -> "running".equalsIgnoreCase(run.getActivityType()));
     }
 
-    private String getAiAnalysis(List<GarminRunDataDTO> runs, PerformanceMetrics metrics) {
-        String runDataSummary = formatRunDataForAi(runs);
-        String metricSummary = formatMetricsForPrompt(metrics);
-        String userPrompt = """
+    private String buildUserPrompt(PerformanceMetrics metrics, String runDataSummary) {
+        return """
                 Please analyze the following Garmin running data.
 
                 Derived metrics:
@@ -196,9 +217,7 @@ public class RunAnalysisServiceImpl implements RunAnalysisService {
 
                 Raw run details:
                 %s
-                """.formatted(metricSummary, runDataSummary);
-
-        return aiProviderChain.call(SYSTEM_PROMPT, userPrompt);
+                """.formatted(formatMetricsForPrompt(metrics), runDataSummary);
     }
 
     private AiStructuredAnalysis toStructuredAnalysis(String aiAnalysis, PerformanceMetrics metrics, List<GarminRunDataDTO> runs) {
