@@ -25,8 +25,128 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Normalize image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Select image tag
+        id: image
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: echo "tag=$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      # Build only (no push) — validates the image builds and warms the gha cache
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Project**: runs-ai-analyzer" >> $GITHUB_STEP_SUMMARY
+          echo "**Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry**: ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "ℹ️ Local build only — image not pushed" >> $GITHUB_STEP_SUMMARY
+
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Normalize image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Select image tag
+        id: image
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: echo "tag=$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      # Build locally for scanning — shares the gha cache with the build job
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan (CRITICAL severity only)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy image \
+            --severity CRITICAL \
+            --exit-code 1 \
+            --ignore-unfixed \
+            ${{ steps.image.outputs.tag }}
+
+      - name: Trivy vulnerability report (all severities for transparency)
+        if: always()
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy image \
+            --format table \
+            --ignore-unfixed \
+            ${{ steps.image.outputs.tag }} || true
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [ build, scan ]
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
@@ -42,7 +162,6 @@ jobs:
         run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -59,19 +178,20 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
+      # Rebuild from the warm gha cache and push — only reached when both
+      # build and scan succeeded
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Generate summary
-        if: always()
         run: |
           echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -80,9 +200,5 @@ jobs:
           echo "**Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Registry**: ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "✅ Docker image pushed to ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "ℹ️ Pull Request: Docker image built locally (not pushed)" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "✅ Docker image pushed to ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
 
