@@ -9,8 +9,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpInputMessage;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,6 +36,37 @@ class GlobalExceptionHandlerTest {
     @AfterEach
     void detachAppender() {
         logger.detachAppender(appender);
+    }
+
+    @Test
+    void scannerProbeForAMissingPathIsA404LoggedAtDebugWithNoErrorOrStackTrace() {
+        logger.setLevel(Level.DEBUG);
+
+        ProblemDetail problem = handler.handleNoResource(
+                new NoResourceFoundException(HttpMethod.GET, "/wp-login.php", "wp-login.php"));
+
+        assertEquals(404, problem.getStatus());
+        assertTrue(appender.list.stream().noneMatch(e -> e.getLevel().isGreaterOrEqual(Level.INFO)),
+                "a 404 must not log at INFO or above");
+        assertTrue(appender.list.stream().noneMatch(e -> e.getThrowableProxy() != null),
+                "a 404 must not log a stack trace");
+    }
+
+    @Test
+    void springMvcClientErrorKeepsItsStatusInsteadOfBecomingA500() {
+        ProblemDetail problem = handler.handleGenericException(new HttpRequestMethodNotSupportedException("DELETE"));
+
+        assertEquals(405, problem.getStatus());
+        assertTrue(appender.list.stream().noneMatch(e -> e.getLevel() == Level.ERROR),
+                "a client error must not log at ERROR");
+    }
+
+    @Test
+    void trulyUnexpectedExceptionIsStillA500WithAnErrorLog() {
+        ProblemDetail problem = handler.handleGenericException(new IllegalStateException("boom"));
+
+        assertEquals(500, problem.getStatus());
+        assertTrue(appender.list.stream().anyMatch(e -> e.getLevel() == Level.ERROR));
     }
 
     @Test

@@ -4,7 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -63,8 +65,31 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    /**
+     * A request for a path nothing serves. Internet scanners hit this hundreds of times a day
+     * (/wp-login.php, /manager/html, /.git/HEAD, ...), and it used to fall through to the catch-all
+     * below: an ERROR line with a full stack trace and a 500 for each one. It is a plain 404, logged
+     * at DEBUG so it neither floods the logs nor looks like an application fault.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ProblemDetail handleNoResource(NoResourceFoundException ex) {
+        log.debug("No resource (404): {}", ex.getResourcePath());
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Resource not found");
+        problem.setTitle("Not Found");
+        problem.setProperty("timestamp", Instant.now());
+
+        return problem;
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGenericException(Exception ex) {
+        // Spring MVC's own client errors (405 wrong method, 415 wrong media type, ...) carry their own
+        // status; answer with it instead of turning them into a 500 with an ERROR stack trace.
+        if (ex instanceof ErrorResponse errorResponse && errorResponse.getStatusCode().is4xxClientError()) {
+            log.warn("Client error {}: {}", errorResponse.getStatusCode().value(), ex.getMessage());
+            return errorResponse.getBody();
+        }
         log.error("Unexpected error: {}", ex.getMessage(), ex);
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
