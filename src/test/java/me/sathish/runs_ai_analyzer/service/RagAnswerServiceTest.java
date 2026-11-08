@@ -17,12 +17,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -149,6 +155,38 @@ class RagAnswerServiceTest {
 
         verify(ragStorageService).searchSimilarAnalyses(QUESTION, RagAnswerService.MAX_TOP_K);
         verify(ragStorageService).searchSimilarAnalyses(QUESTION, RagAnswerService.DEFAULT_TOP_K);
+    }
+
+    @Test
+    void aSecondQuestionWhileOneIsRunningIsToldToWaitInsteadOfQueueingAnotherGeneration() throws Exception {
+        RunAnalysisDocument doc = analysis(UUID.randomUUID(), "Summary", "2026-10-07 to 2026-10-14");
+        when(ragStorageService.getRecentAnalyses(anyInt())).thenReturn(List.of(doc));
+        when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt())).thenReturn(List.of());
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(aiProviderChain.call(anyString(), anyString())).thenAnswer(invocation -> {
+            started.countDown();
+            release.await(5, TimeUnit.SECONDS);
+            return "first answer";
+        });
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<RagAnswerResponse> first = executor.submit(() -> service.answer(QUESTION, null));
+            assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+
+            RagAnswerResponse second = service.answer("another question", null);
+
+            assertThat(second.getError()).isEqualTo(RagAnswerService.BUSY_ERROR);
+            assertThat(second.getAnswer()).isNull();
+            verify(aiProviderChain, times(1)).call(anyString(), anyString());
+
+            release.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS).getAnswer()).isEqualTo("first answer");
+            // the slot is free again once the first answer is done
+            assertThat(service.answer(QUESTION, null).getAnswer()).isEqualTo("first answer");
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private static RunAnalysisDocument analysis(UUID id, String summary, String dateRange) {

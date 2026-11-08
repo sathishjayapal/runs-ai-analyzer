@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
 
 /**
  * Turns a free-form question into a coaching answer: gathers the runner's recent analyses plus the stored
@@ -28,12 +29,18 @@ import java.util.UUID;
 @Slf4j
 public class RagAnswerService {
 
-    static final int DEFAULT_TOP_K = 4;
+    // Budgets are small on purpose. On the home VM (a 2013 Xeon with no AVX2) a 3B model reads about 7 prompt
+    // tokens/s and writes about 3 tokens/s, so a ~2,000-token prompt plus a long answer took almost 7 minutes.
+    // Roughly 700 tokens of context and a short answer keep a CPU-only answer to a few minutes.
+    static final int DEFAULT_TOP_K = 2;
     static final int MAX_TOP_K = 10;
     /** Always included, newest first, because "what next" depends on what the runner did most recently. */
-    static final int RECENT_ANALYSES = 2;
-    static final int MAX_ITEM_CHARS = 1800;
-    static final int MAX_CONTEXT_CHARS = 7000;
+    static final int RECENT_ANALYSES = 1;
+    static final int MAX_ITEM_CHARS = 900;
+    static final int MAX_CONTEXT_CHARS = 2800;
+    static final int MAX_RUN_DATA_CHARS = 350;
+    static final int MAX_INSIGHTS = 3;
+    static final int MAX_RECOMMENDATIONS = 4;
     static final String JOURNAL_SOURCE_TYPE = "run_journal_entry";
 
     static final String SYSTEM_PROMPT = """
@@ -49,6 +56,7 @@ public class RagAnswerService {
             - Refer to specific runs or dates when that helps.
             - Use only the supplied data. If something you would need is missing, say what is missing \
             instead of guessing.
+            - Keep the whole answer under about 200 words.
             - Plain text with short paragraphs and lines starting with "-". You may use **bold** for headings. \
             No JSON and no code fences.
             - You are not a doctor: for pain that persists or worsens, suggest seeing a clinician.
@@ -58,13 +66,35 @@ public class RagAnswerService {
             "I don't have any analyzed runs or journal entries to base an answer on yet. "
                     + "Import your runs and run an analysis (or add a journal entry), then ask again.";
 
+    static final String BUSY_ERROR =
+            "The AI coach is still working on another question. Please wait a few minutes and ask again.";
+
     static final String UNAVAILABLE_ERROR =
             "The AI coach could not answer right now because no AI model was reachable. Please try again shortly.";
 
     private final RagStorageService ragStorageService;
     private final AiProviderChain aiProviderChain;
 
+    /**
+     * One answer at a time. A CPU-only local model handles one request at a time anyway, and a page that
+     * times out and retries would otherwise queue a second multi-minute generation behind the first (and the
+     * abandoned one keeps running), so a request that arrives meanwhile is told to wait.
+     */
+    private final Semaphore inFlight = new Semaphore(1);
+
     public RagAnswerResponse answer(String question, Integer topK) {
+        if (!inFlight.tryAcquire()) {
+            log.info("AI coach busy, rejecting '{}'", question);
+            return RagAnswerResponse.builder().query(question).error(BUSY_ERROR).sources(List.of()).build();
+        }
+        try {
+            return answerNow(question, topK);
+        } finally {
+            inFlight.release();
+        }
+    }
+
+    private RagAnswerResponse answerNow(String question, Integer topK) {
         int k = topK == null || topK < 1 ? DEFAULT_TOP_K : Math.min(topK, MAX_TOP_K);
         List<ContextItem> items = gatherContext(question, k);
 
@@ -128,11 +158,12 @@ public class RagAnswerService {
         appendLine(text, "Summary", doc.getSummary());
         appendLine(text, "Average pace (min/mi)", meta.get("averagePace"));
         appendLine(text, "Average heart rate", meta.get("averageHeartRate"));
-        appendList(text, "Insights", insightLines(meta.get("insights")));
-        appendList(text, "Recommendations", stringList(meta.get("recommendations")));
+        appendList(text, "Insights", insightLines(meta.get("insights")).stream().limit(MAX_INSIGHTS).toList());
+        appendList(text, "Recommendations",
+                stringList(meta.get("recommendations")).stream().limit(MAX_RECOMMENDATIONS).toList());
         List<String> riskFlags = stringList(meta.get("riskFlags"));
         appendList(text, "Risk flags", riskFlags.isEmpty() ? List.of("none flagged") : riskFlags);
-        appendLine(text, "Runs analyzed", doc.getQueryText());
+        appendLine(text, "Runs analyzed", truncate(doc.getQueryText(), MAX_RUN_DATA_CHARS));
         return new ContextItem(source, truncate(text.toString().strip(), MAX_ITEM_CHARS));
     }
 
