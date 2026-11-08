@@ -1,6 +1,7 @@
 package me.sathish.runs_ai_analyzer.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import me.sathish.runs_ai_analyzer.config.CorrelationIdFilter;
 import me.sathish.runs_ai_analyzer.entity.AnalysisProcessingLog;
 import me.sathish.runs_ai_analyzer.entity.AnalysisProcessingLog.ProcessingStatus;
 import me.sathish.runs_ai_analyzer.repository.AnalysisProcessingLogRepository;
@@ -39,7 +40,7 @@ class GarminEventListenerTest {
     void newRunEvictsCachedAnalysesAndQueuesRun() {
         when(processingLogRepository.findByActivityIdAndDatabaseId("A1", 1L)).thenReturn(Optional.empty());
 
-        listener.handleGarminRunEvent(event("A1", 1L, "SUCCESS"));
+        listener.handleGarminRunEvent(event("A1", 1L, "SUCCESS"), null);
 
         verify(ragStorageService).evictCachedAnalyses();
         verify(batchService).queueForAnalysis(any());
@@ -50,7 +51,7 @@ class GarminEventListenerTest {
         when(processingLogRepository.findByActivityIdAndDatabaseId("A1", 1L))
                 .thenReturn(Optional.of(processedLog("A1", 1L)));
 
-        listener.handleGarminRunEvent(event("A1", 1L, "SUCCESS"));
+        listener.handleGarminRunEvent(event("A1", 1L, "SUCCESS"), null);
 
         verify(ragStorageService, never()).evictCachedAnalyses();
         verify(batchService, never()).queueForAnalysis(any());
@@ -61,7 +62,7 @@ class GarminEventListenerTest {
         when(processingLogRepository.findByActivityIdAndDatabaseId("A1", 1L))
                 .thenReturn(Optional.of(processedLog("A1", 1L)));
 
-        listener.handleGarminRunEvent(event("A1", 1L, "UPDATED"));
+        listener.handleGarminRunEvent(event("A1", 1L, "UPDATED"), null);
 
         verify(ragStorageService).evictCachedAnalyses();
         verify(batchService, never()).queueForAnalysis(any());
@@ -69,9 +70,40 @@ class GarminEventListenerTest {
 
     @Test
     void failedImportEventIsIgnored() {
-        listener.handleGarminRunEvent(event("A1", 1L, "FAILED"));
+        listener.handleGarminRunEvent(event("A1", 1L, "FAILED"), null);
 
         verifyNoInteractions(ragStorageService, batchService, processingLogRepository);
+    }
+
+    @Test
+    void correlationIdFromTheMessageIsInTheMdcWhileProcessingAndCleared() {
+        java.util.concurrent.atomic.AtomicReference<String> seen = new java.util.concurrent.atomic.AtomicReference<>();
+        when(processingLogRepository.findByActivityIdAndDatabaseId("A1", 1L)).thenReturn(Optional.empty());
+        doAnswer(inv -> {
+            seen.set(org.slf4j.MDC.get(CorrelationIdFilter.MDC_KEY));
+            return null;
+        }).when(batchService).queueForAnalysis(any());
+
+        listener.handleGarminRunEvent(event("A1", 1L, "SUCCESS"), "file-corr-42");
+
+        org.junit.jupiter.api.Assertions.assertEquals("file-corr-42", seen.get());
+        org.junit.jupiter.api.Assertions.assertNull(
+                org.slf4j.MDC.get(CorrelationIdFilter.MDC_KEY), "must not leak to the next message on this thread");
+    }
+
+    @Test
+    void missingCorrelationIdGetsAGeneratedOneAndIsStillCleared() {
+        java.util.concurrent.atomic.AtomicReference<String> seen = new java.util.concurrent.atomic.AtomicReference<>();
+        when(processingLogRepository.findByActivityIdAndDatabaseId("A1", 1L)).thenReturn(Optional.empty());
+        doAnswer(inv -> {
+            seen.set(org.slf4j.MDC.get(CorrelationIdFilter.MDC_KEY));
+            return null;
+        }).when(batchService).queueForAnalysis(any());
+
+        listener.handleGarminRunEvent(event("A1", 1L, "SUCCESS"), null);
+
+        org.junit.jupiter.api.Assertions.assertNotNull(seen.get());
+        org.junit.jupiter.api.Assertions.assertNull(org.slf4j.MDC.get(CorrelationIdFilter.MDC_KEY));
     }
 
     private static String event(String activityId, long databaseId, String status) {

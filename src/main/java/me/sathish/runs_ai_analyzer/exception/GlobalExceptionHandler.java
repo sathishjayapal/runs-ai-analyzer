@@ -3,6 +3,7 @@ package me.sathish.runs_ai_analyzer.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -27,6 +28,23 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST, errors);
         problem.setTitle("Validation Failed");
         problem.setType(URI.create("https://api.runs-ai-analyzer.me/errors/validation"));
+        problem.setProperty("timestamp", Instant.now());
+
+        return problem;
+    }
+
+    /**
+     * A body that is missing or not parseable as the expected JSON. Without this it fell through to the
+     * catch-all below and came back as a 500 "Internal Server Error" with no hint of the real cause.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ProblemDetail handleUnreadableBody(HttpMessageNotReadableException ex) {
+        log.warn("Unreadable request body (400): {}", ex.getMostSpecificCause().getMessage());
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Request body is missing or is not valid JSON for this endpoint");
+        problem.setTitle("Malformed Request Body");
+        problem.setType(URI.create("https://api.runs-ai-analyzer.me/errors/malformed-body"));
         problem.setProperty("timestamp", Instant.now());
 
         return problem;

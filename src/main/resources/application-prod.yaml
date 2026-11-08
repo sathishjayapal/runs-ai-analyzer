@@ -1,0 +1,8 @@
+# Structured JSON (ECS) on stdout in prod, so Alloy -> Loki -> Grafana can filter by field
+# (level, logger, correlationId, ...) instead of grepping plain text. Same format runs-app and
+# eventstracker use. Lives in the image so a Watchtower redeploy is enough; no compose change.
+# Local runs (no "prod" profile) keep the readable console format.
+logging:
+  structured:
+    format:
+      console: ecs
