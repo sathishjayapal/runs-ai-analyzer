@@ -5,9 +5,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.validation.Valid;
+import me.sathish.runs_ai_analyzer.dto.RagAnswerResponse;
 import me.sathish.runs_ai_analyzer.dto.RagSearchRequest;
 import me.sathish.runs_ai_analyzer.dto.RagSearchResponse;
 import me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument;
+import me.sathish.runs_ai_analyzer.service.RagAnswerService;
 import me.sathish.runs_ai_analyzer.service.RagStorageService;
 import org.springframework.ai.document.Document;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +27,7 @@ import java.util.UUID;
 public class RagSearchController {
 
     private final RagStorageService ragStorageService;
+    private final RagAnswerService ragAnswerService;
 
     @PostMapping("/search")
     @Operation(
@@ -52,6 +56,21 @@ public class RagSearchController {
                 .results(results)
                 .totalResults(results.size())
                 .build());
+    }
+
+    @PostMapping("/ask")
+    @Operation(
+            summary = "Ask the AI running coach",
+            description = "Gathers the runner's recent analyses plus the stored analyses and journal entries "
+                    + "most similar to the question, and has the LLM answer with concrete next steps. "
+                    + "Slower than /search because it calls the LLM. Failures to reach an AI model come back "
+                    + "as 200 with an 'error' field so the UI can show them inline."
+    )
+    @ApiResponse(responseCode = "200", description = "Answer (or an 'error' message if no AI model was reachable)")
+    @ApiResponse(responseCode = "400", description = "Query is blank")
+    public ResponseEntity<RagAnswerResponse> ask(@Valid @RequestBody RagSearchRequest request) {
+        log.info("Asking the AI coach: '{}'", request.getQuery());
+        return ResponseEntity.ok(ragAnswerService.answer(request.getQuery(), request.getTopK()));
     }
 
     @GetMapping("/recent")

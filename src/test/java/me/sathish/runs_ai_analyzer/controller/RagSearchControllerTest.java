@@ -1,8 +1,10 @@
 package me.sathish.runs_ai_analyzer.controller;
 
+import me.sathish.runs_ai_analyzer.dto.RagAnswerResponse;
 import me.sathish.runs_ai_analyzer.dto.RagSearchRequest;
 import me.sathish.runs_ai_analyzer.dto.RagSearchResponse;
 import me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument;
+import me.sathish.runs_ai_analyzer.service.RagAnswerService;
 import me.sathish.runs_ai_analyzer.service.RagStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,9 @@ class RagSearchControllerTest {
     @Mock
     private RagStorageService ragStorageService;
 
+    @Mock
+    private RagAnswerService ragAnswerService;
+
     @InjectMocks
     private RagSearchController ragSearchController;
 
@@ -51,6 +56,22 @@ class RagSearchControllerTest {
                 .totalDistanceMiles(5.0)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    @Test
+    void ask_shouldReturnTheCoachAnswerFromTheService() {
+        RagAnswerResponse answer = RagAnswerResponse.builder()
+                .query("What next?")
+                .answer("Keep it easy.")
+                .sources(List.of("Analysis of 2026-10-07 to 2026-10-14 (5 runs, 16.5 mi)"))
+                .build();
+        when(ragAnswerService.answer("What next?", 3)).thenReturn(answer);
+
+        ResponseEntity<RagAnswerResponse> response =
+                ragSearchController.ask(RagSearchRequest.builder().query("What next?").topK(3).build());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isSameAs(answer);
     }
 
     @Test
