@@ -4,6 +4,7 @@ import me.sathish.runs_ai_analyzer.dto.RagAnswerResponse;
 import me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument;
 import me.sathish.runs_ai_analyzer.exception.AiAnalysisException;
 import me.sathish.runs_ai_analyzer.service.ai.AiProviderChain;
+import me.sathish.runs_ai_analyzer.service.ai.AiResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -61,7 +62,7 @@ class RagAnswerServiceTest {
         when(ragStorageService.searchSimilarAnalyses(QUESTION, RagAnswerService.DEFAULT_TOP_K))
                 .thenReturn(List.of(analysisHit, journalHit));
         when(ragStorageService.findByDocumentId(similar.getDocumentId())).thenReturn(Optional.of(similar));
-        when(aiProviderChain.call(anyString(), anyString())).thenReturn("  Keep next week easy.\n\n**Next steps**\n- Rest.  ");
+        when(aiProviderChain.callWithDetails(anyString(), anyString())).thenReturn(answer("  Keep next week easy.\n\n**Next steps**\n- Rest.  "));
 
         RagAnswerResponse response = service.answer(QUESTION, null);
 
@@ -75,7 +76,7 @@ class RagAnswerServiceTest {
 
         ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
-        verify(aiProviderChain).call(system.capture(), user.capture());
+        verify(aiProviderChain).callWithDetails(system.capture(), user.capture());
         assertThat(system.getValue()).isEqualTo(RagAnswerService.SYSTEM_PROMPT);
         assertThat(user.getValue())
                 .contains(QUESTION)
@@ -93,7 +94,7 @@ class RagAnswerServiceTest {
         when(ragStorageService.getRecentAnalyses(RagAnswerService.RECENT_ANALYSES)).thenReturn(List.of(doc));
         when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt()))
                 .thenReturn(List.of(new Document("v1", "text", Map.of("documentId", doc.getDocumentId().toString()))));
-        when(aiProviderChain.call(anyString(), anyString())).thenReturn("ok");
+        when(aiProviderChain.callWithDetails(anyString(), anyString())).thenReturn(answer("ok"));
 
         RagAnswerResponse response = service.answer(QUESTION, null);
 
@@ -109,7 +110,7 @@ class RagAnswerServiceTest {
 
         assertThat(response.getAnswer()).isEqualTo(RagAnswerService.NO_DATA_ANSWER);
         assertThat(response.getError()).isNull();
-        verify(aiProviderChain, never()).call(anyString(), anyString());
+        verify(aiProviderChain, never()).callWithDetails(anyString(), anyString());
     }
 
     @Test
@@ -117,7 +118,7 @@ class RagAnswerServiceTest {
         RunAnalysisDocument doc = analysis(UUID.randomUUID(), "Summary", "2026-10-07 to 2026-10-14");
         when(ragStorageService.getRecentAnalyses(anyInt())).thenReturn(List.of(doc));
         when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt())).thenReturn(List.of());
-        when(aiProviderChain.call(anyString(), anyString()))
+        when(aiProviderChain.callWithDetails(anyString(), anyString()))
                 .thenThrow(new AiAnalysisException("All AI providers failed: ollama=host.docker.internal: Name does not resolve"));
 
         RagAnswerResponse response = service.answer(QUESTION, null);
@@ -136,12 +137,12 @@ class RagAnswerServiceTest {
         second.setQueryText("run ".repeat(50_000));
         when(ragStorageService.getRecentAnalyses(anyInt())).thenReturn(List.of(huge, second));
         when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt())).thenReturn(List.of());
-        when(aiProviderChain.call(anyString(), anyString())).thenReturn("ok");
+        when(aiProviderChain.callWithDetails(anyString(), anyString())).thenReturn(answer("ok"));
 
         service.answer(QUESTION, null);
 
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
-        verify(aiProviderChain).call(anyString(), user.capture());
+        verify(aiProviderChain).callWithDetails(anyString(), user.capture());
         assertThat(user.getValue().length()).isLessThanOrEqualTo(RagAnswerService.MAX_CONTEXT_CHARS + 5);
     }
 
@@ -164,10 +165,10 @@ class RagAnswerServiceTest {
         when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt())).thenReturn(List.of());
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        when(aiProviderChain.call(anyString(), anyString())).thenAnswer(invocation -> {
+        when(aiProviderChain.callWithDetails(anyString(), anyString())).thenAnswer(invocation -> {
             started.countDown();
             release.await(5, TimeUnit.SECONDS);
-            return "first answer";
+            return answer("first answer");
         });
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -178,7 +179,7 @@ class RagAnswerServiceTest {
 
             assertThat(second.getError()).isEqualTo(RagAnswerService.BUSY_ERROR);
             assertThat(second.getAnswer()).isNull();
-            verify(aiProviderChain, times(1)).call(anyString(), anyString());
+            verify(aiProviderChain, times(1)).callWithDetails(anyString(), anyString());
 
             release.countDown();
             assertThat(first.get(5, TimeUnit.SECONDS).getAnswer()).isEqualTo("first answer");
@@ -187,6 +188,39 @@ class RagAnswerServiceTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void whenAFasterTierWasSkippedTheAnswerSaysWhichModelAnsweredAndWhy() {
+        RunAnalysisDocument doc = analysis(UUID.randomUUID(), "Summary", "2026-10-07 to 2026-10-14");
+        when(ragStorageService.getRecentAnalyses(anyInt())).thenReturn(List.of(doc));
+        when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt())).thenReturn(List.of());
+        when(aiProviderChain.callWithDetails(anyString(), anyString())).thenReturn(new AiResult("Keep it easy.",
+                "local-ollama", List.of(new AiResult.Skipped("openrouter", "daily limit reached"))));
+
+        RagAnswerResponse response = service.answer(QUESTION, null);
+
+        assertThat(response.getProvider()).isEqualTo("local Qwen on the VM");
+        assertThat(response.getNotice()).isEqualTo(
+                "OpenRouter (daily limit reached) was unavailable, so this was answered by local Qwen on the VM, which is slower.");
+    }
+
+    @Test
+    void whenTheFirstTierAnswersThereIsAProviderButNoNotice() {
+        RunAnalysisDocument doc = analysis(UUID.randomUUID(), "Summary", "2026-10-07 to 2026-10-14");
+        when(ragStorageService.getRecentAnalyses(anyInt())).thenReturn(List.of(doc));
+        when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt())).thenReturn(List.of());
+        when(aiProviderChain.callWithDetails(anyString(), anyString()))
+                .thenReturn(new AiResult("Keep it easy.", "openrouter", List.of()));
+
+        RagAnswerResponse response = service.answer(QUESTION, null);
+
+        assertThat(response.getProvider()).isEqualTo("OpenRouter");
+        assertThat(response.getNotice()).isNull();
+    }
+
+    private static AiResult answer(String text) {
+        return new AiResult(text, "local-ollama", List.of());
     }
 
     private static RunAnalysisDocument analysis(UUID id, String summary, String dateRange) {

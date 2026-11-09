@@ -9,6 +9,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import me.sathish.runs_ai_analyzer.service.ai.AiProvider;
 import me.sathish.runs_ai_analyzer.service.ai.AiProviderChain;
+import me.sathish.runs_ai_analyzer.service.ai.OpenAiCompatibleChatModel;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.ollama.OllamaChatModel;
@@ -32,6 +33,7 @@ import org.springframework.web.client.RestClient;
 @Configuration
 public class AiConfig {
 
+    static final String OPENROUTER = "openrouter";
     static final String ANTHROPIC = "anthropic";
     static final String ACG_OLLAMA = "acg-ollama";
     static final String LOCAL_OLLAMA = "local-ollama";
@@ -111,8 +113,41 @@ public class AiConfig {
         AiProvider localOllama = AiProvider.enabled(LOCAL_OLLAMA, localOllamaChatClient,
                 CircuitBreaker.of(LOCAL_OLLAMA, breakerConfig));
 
-        return new AiProviderChain(List.of(anthropic, acgOllama, localOllama),
+        AiProvider openRouter = buildOpenRouter(fallback.getOpenrouter(), breakerConfig);
+
+        // OpenRouter first: cheap and capped. Anthropic stays ahead of the Ollama tiers if a key is ever added.
+        return new AiProviderChain(List.of(openRouter, anthropic, acgOllama, localOllama),
                 fallback.getCircuitBreaker().getAuthFailureOpenDuration(), Clock.systemUTC());
+    }
+
+    /**
+     * The OpenRouter tier exists only when a key is configured. It is built by hand (see
+     * {@link OpenAiCompatibleChatModel}) so a missing key can never fail application startup.
+     */
+    static AiProvider buildOpenRouter(AiFallbackProperties.OpenRouter props, CircuitBreakerConfig breakerConfig) {
+        CircuitBreaker breaker = CircuitBreaker.of(OPENROUTER, breakerConfig);
+        String problem = openRouterKeyProblem(props.getApiKey());
+        if (problem != null) {
+            return AiProvider.disabled(OPENROUTER, breaker, problem);
+        }
+        OpenAiCompatibleChatModel model = new OpenAiCompatibleChatModel(props.getBaseUrl(), props.getApiKey().strip(),
+                props.getModel(), props.getMaxTokens(), props.getTemperature(), props.isDenyDataCollection(),
+                props.getConnectTimeout(), props.getReadTimeout());
+        return AiProvider.enabled(OPENROUTER, ChatClient.create(model), breaker, props.getDailyCallCap());
+    }
+
+    /**
+     * Returns why the key is unusable, or null if it looks usable. Never logs the key.
+     */
+    static String openRouterKeyProblem(String apiKey) {
+        if (!StringUtils.hasText(apiKey)) {
+            return "OPENROUTER_API_KEY is not set";
+        }
+        String key = apiKey.strip();
+        if (key.startsWith("${") || key.contains("<") || key.toLowerCase().contains("changeme")) {
+            return "OPENROUTER_API_KEY looks like a placeholder, not a key";
+        }
+        return null;
     }
 
     /**

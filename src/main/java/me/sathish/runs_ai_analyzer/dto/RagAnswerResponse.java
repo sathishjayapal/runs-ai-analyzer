@@ -25,6 +25,15 @@ public class RagAnswerResponse {
     /** Human-readable list of what the answer was based on, e.g. "Analysis of 2026-10-07 to 2026-10-14 (5 runs, 16.5 mi)". */
     private List<String> sources;
 
+    /** Which model wrote the answer, in words, e.g. "OpenRouter" or "local Qwen on the VM". Null when there is no answer. */
+    private String provider;
+
+    /**
+     * Set when a faster tier ahead of the one that answered was unavailable, e.g.
+     * "OpenRouter was unavailable (daily limit reached), so this was answered by local Qwen on the VM, which is slower."
+     */
+    private String notice;
+
     /** Set when no answer could be produced (for example every AI provider is down). */
     private String error;
 }

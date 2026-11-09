@@ -23,6 +23,17 @@ spring:
 diagram-maker:
   base-url: ${DIAGRAM_MAKER_BASE_URL:http://localhost:8091}
 
+# First tier of the chat failover chain: hosted open models through OpenRouter. Empty key = tier off.
+# The key comes only from the OPENROUTER_API_KEY stack variable. Also set a USD limit on that key in the
+# OpenRouter dashboard: that limit, not these caps, is what bounds the bill. See AiFallbackProperties.
+ai:
+  fallback:
+    openrouter:
+      api-key: ${OPENROUTER_API_KEY:}
+      model: ${OPENROUTER_MODEL:meta-llama/llama-3.3-70b-instruct}
+      daily-call-cap: ${OPENROUTER_DAILY_CALL_CAP:200}
+      max-tokens: ${OPENROUTER_MAX_TOKENS:1200}
+
 # Note: Most configuration is loaded from Spring Cloud Config Server.
 # Flyway is configured here (not config server) because Spring Boot 4.x evaluates
 # @ConditionalOnProperty for FlywayAutoConfiguration before bootstrap properties

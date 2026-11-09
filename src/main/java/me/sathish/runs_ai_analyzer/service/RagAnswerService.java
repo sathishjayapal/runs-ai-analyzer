@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import me.sathish.runs_ai_analyzer.dto.RagAnswerResponse;
 import me.sathish.runs_ai_analyzer.entity.RunAnalysisDocument;
 import me.sathish.runs_ai_analyzer.service.ai.AiProviderChain;
+import me.sathish.runs_ai_analyzer.service.ai.AiResult;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 
@@ -109,14 +110,48 @@ public class RagAnswerService {
         List<String> sources = items.stream().map(ContextItem::source).toList();
         String userPrompt = buildUserPrompt(question, items);
         try {
-            String answer = aiProviderChain.call(SYSTEM_PROMPT, userPrompt);
-            return RagAnswerResponse.builder().query(question).answer(answer.strip()).sources(sources).build();
+            AiResult result = aiProviderChain.callWithDetails(SYSTEM_PROMPT, userPrompt);
+            return RagAnswerResponse.builder()
+                    .query(question)
+                    .answer(result.text().strip())
+                    .sources(sources)
+                    .provider(label(result.provider()))
+                    .notice(notice(result))
+                    .build();
         } catch (RuntimeException e) {
             // Answered with 200 + error text on purpose: the page shows it in the answer card instead of
             // navigating to its generic error screen. The detail (provider URLs, causes) stays in the log.
             log.warn("AI coach could not answer '{}': {}", question, e.getMessage());
             return RagAnswerResponse.builder().query(question).error(UNAVAILABLE_ERROR).sources(sources).build();
         }
+    }
+
+    /** User-facing name of a tier, as the page shows it. */
+    static String label(String provider) {
+        return switch (provider) {
+            case "openrouter" -> "OpenRouter";
+            case "anthropic" -> "Anthropic";
+            case "acg-ollama" -> "the remote Ollama";
+            case "local-ollama" -> "local Qwen on the VM";
+            default -> provider;
+        };
+    }
+
+    /**
+     * Explains why a faster tier did not answer, or null when the first enabled tier did. Uses only the short,
+     * user-safe reasons from the chain, never raw error text.
+     */
+    static String notice(AiResult result) {
+        if (result.unavailable().isEmpty()) {
+            return null;
+        }
+        String skipped = result.unavailable().stream()
+                .map(s -> label(s.provider()) + " (" + s.reason() + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        String answeredBy = label(result.provider());
+        boolean slow = "local-ollama".equals(result.provider());
+        return skipped + " was unavailable, so this was answered by " + answeredBy
+                + (slow ? ", which is slower." : ".");
     }
 
     private List<ContextItem> gatherContext(String question, int topK) {

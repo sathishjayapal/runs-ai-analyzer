@@ -12,6 +12,10 @@ import me.sathish.runs_ai_analyzer.exception.AiAnalysisException;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.retry.NonTransientAiException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -134,6 +138,113 @@ class AiProviderChainTest {
         assertThat(AiProviderChain.isAuthFailure(new RuntimeException(new NonTransientAiException("403 - forbidden")))).isTrue();
         assertThat(AiProviderChain.isAuthFailure(new NonTransientAiException("429 - rate limited"))).isFalse();
         assertThat(AiProviderChain.isAuthFailure(new ResourceAccessException("timeout"))).isFalse();
+    }
+
+    @Test
+    void callWithDetails_reportsTheTierThatAnsweredAndWhyEarlierEnabledTiersWerePassedOver() {
+        AiProviderChain chain = chain(
+                AiProvider.disabled("anthropic", breaker("anthropic"), "no key"),
+                AiProvider.enabled("openrouter", clientThrowing(new ResourceAccessException("Connect timed out")),
+                        breaker("openrouter")),
+                AiProvider.enabled("local-ollama", clientReturning("local-answer"), breaker("local-ollama")));
+
+        AiResult result = chain.callWithDetails("sys", "user");
+
+        assertThat(result.text()).isEqualTo("local-answer");
+        assertThat(result.provider()).isEqualTo("local-ollama");
+        // the tier switched off by configuration is not reported; the enabled one that failed is
+        assertThat(result.unavailable()).containsExactly(new AiResult.Skipped("openrouter", "not reachable"));
+    }
+
+    @Test
+    void dailyCallLimit_skipsTheTierOnceReached_andResetsTheNextUtcDay() {
+        ChatClient paid = clientReturning("paid-answer");
+        AiProviderChain chain = chain(
+                AiProvider.enabled("openrouter", paid, breaker("openrouter"), 2),
+                AiProvider.enabled("local-ollama", clientReturning("local-answer"), breaker("local-ollama")));
+
+        assertThat(chain.call("sys", "user")).isEqualTo("paid-answer");
+        assertThat(chain.call("sys", "user")).isEqualTo("paid-answer");
+        AiResult third = chain.callWithDetails("sys", "user");
+
+        assertThat(third.text()).isEqualTo("local-answer");
+        assertThat(third.unavailable()).containsExactly(new AiResult.Skipped("openrouter", "daily limit reached"));
+        verify(paid, times(2)).prompt();
+
+        clock.advance(Duration.ofDays(1));
+        assertThat(chain.call("sys", "user")).isEqualTo("paid-answer");
+        verify(paid, times(3)).prompt();
+    }
+
+    @Test
+    void dailyCallLimit_countsFailedAttemptsToo_soAFailingPaidTierCannotRunUpCost() {
+        ChatClient paid = clientThrowing(new ResourceAccessException("down"));
+        AiProviderChain chain = chain(
+                AiProvider.enabled("openrouter", paid, breaker("openrouter"), 1),
+                AiProvider.enabled("local-ollama", clientReturning("local-answer"), breaker("local-ollama")));
+
+        chain.call("sys", "user");
+        chain.call("sys", "user");
+
+        verify(paid, times(1)).prompt();
+    }
+
+    @Test
+    void zeroDailyLimitMeansUnlimited() {
+        ChatClient paid = clientReturning("paid-answer");
+        AiProviderChain chain = chain(AiProvider.enabled("openrouter", paid, breaker("openrouter"), 0));
+
+        for (int i = 0; i < 5; i++) {
+            assertThat(chain.call("sys", "user")).isEqualTo("paid-answer");
+        }
+        verify(paid, times(5)).prompt();
+    }
+
+    @Test
+    void spentCredits_402_blocksTheTierLikeABadKey_untilTheBlockExpires() {
+        HttpClientErrorException spent = HttpClientErrorException.create(
+                HttpStatus.PAYMENT_REQUIRED, "Payment Required", HttpHeaders.EMPTY, new byte[0], null);
+        ChatClient paid = clientThrowing(spent);
+        CircuitBreaker paidBreaker = breaker("openrouter");
+        AiProviderChain chain = chain(
+                AiProvider.enabled("openrouter", paid, paidBreaker),
+                AiProvider.enabled("local-ollama", clientReturning("local-answer"), breaker("local-ollama")));
+
+        AiResult first = chain.callWithDetails("sys", "user");
+
+        assertThat(first.unavailable())
+                .containsExactly(new AiResult.Skipped("openrouter", "credits or key spend limit used up"));
+        assertThat(paidBreaker.getState()).isEqualTo(CircuitBreaker.State.FORCED_OPEN);
+
+        clock.advance(Duration.ofMinutes(10));
+        chain.call("sys", "user");
+        verify(paid, times(1)).prompt();
+
+        clock.advance(AUTH_BLOCK);
+        chain.call("sys", "user");
+        verify(paid, times(2)).prompt();
+    }
+
+    @Test
+    void isCreditFailure_onlyMatches402() {
+        assertThat(AiProviderChain.isCreditFailure(new NonTransientAiException("402 - insufficient credits"))).isTrue();
+        assertThat(AiProviderChain.isCreditFailure(HttpClientErrorException.create(
+                HttpStatus.PAYMENT_REQUIRED, "x", HttpHeaders.EMPTY, new byte[0], null))).isTrue();
+        assertThat(AiProviderChain.isCreditFailure(new NonTransientAiException("401 - bad key"))).isFalse();
+        assertThat(AiProviderChain.isCreditFailure(new ResourceAccessException("timeout"))).isFalse();
+    }
+
+    @Test
+    void friendlyReason_isShortAndNeverContainsRawErrorText() {
+        assertThat(AiProviderChain.friendlyReason(new NonTransientAiException("401 - secret-looking body")))
+                .isEqualTo("credentials rejected");
+        assertThat(AiProviderChain.friendlyReason(HttpClientErrorException.create(
+                HttpStatus.TOO_MANY_REQUESTS, "x", HttpHeaders.EMPTY, new byte[0], null))).isEqualTo("rate limited");
+        assertThat(AiProviderChain.friendlyReason(HttpServerErrorException.create(
+                HttpStatus.SERVICE_UNAVAILABLE, "x", HttpHeaders.EMPTY, new byte[0], null))).isEqualTo("provider error");
+        assertThat(AiProviderChain.friendlyReason(new ResourceAccessException("http://10.0.0.5:11434 refused")))
+                .isEqualTo("not reachable");
+        assertThat(AiProviderChain.friendlyReason(new IllegalStateException("weird"))).isEqualTo("failed");
     }
 
     private AiProviderChain chain(AiProvider... providers) {
