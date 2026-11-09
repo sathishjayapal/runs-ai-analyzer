@@ -223,6 +223,19 @@ class RagStorageServiceTest {
     }
 
     @Test
+    void getRecentAnalyses_honorsALimitBelowTen() {
+        List<RunAnalysisDocument> tenDocs = java.util.stream.IntStream.rangeClosed(1, 10)
+                .mapToObj(i -> RunAnalysisDocument.builder().id((long) i).build())
+                .toList();
+        when(documentRepository.findTop10ByOrderByCreatedAtDesc()).thenReturn(tenDocs);
+
+        List<RunAnalysisDocument> results = ragStorageService.getRecentAnalyses(1);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getId()).as("the newest one").isEqualTo(1L);
+    }
+
+    @Test
     void findAnalysesByActivityId_shouldReturnMatchingDocuments() {
         List<RunAnalysisDocument> matchingDocs = List.of(
                 RunAnalysisDocument.builder().id(1L).activityIds("ACT001,ACT002").build()

@@ -219,6 +219,26 @@ class RagAnswerServiceTest {
         assertThat(response.getNotice()).isNull();
     }
 
+    @Test
+    void sourcesListOnlyWhatActuallyFitInThePrompt() {
+        List<RunAnalysisDocument> many = java.util.stream.IntStream.rangeClosed(1, 6).mapToObj(i -> {
+            RunAnalysisDocument d = analysis(UUID.randomUUID(), "Summary " + i, "2026-0" + i + "-01 to 2026-0" + i + "-08");
+            d.setQueryText("run ".repeat(5_000));
+            return d;
+        }).toList();
+        when(ragStorageService.getRecentAnalyses(anyInt())).thenReturn(many);
+        when(ragStorageService.searchSimilarAnalyses(anyString(), anyInt())).thenReturn(List.of());
+        when(aiProviderChain.callWithDetails(anyString(), anyString())).thenReturn(answer("ok"));
+
+        RagAnswerResponse response = service.answer(QUESTION, null);
+
+        ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+        verify(aiProviderChain).callWithDetails(anyString(), user.capture());
+        assertThat(response.getSources()).as("six were gathered, the size cap cut the rest").hasSizeLessThan(6);
+        assertThat(response.getSources()).allSatisfy(source ->
+                assertThat(user.getValue()).as("a listed source must be in the prompt").contains(source));
+    }
+
     private static AiResult answer(String text) {
         return new AiResult(text, "local-ollama", List.of());
     }

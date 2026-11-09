@@ -107,8 +107,10 @@ public class RagAnswerService {
                     .build();
         }
 
-        List<String> sources = items.stream().map(ContextItem::source).toList();
-        String userPrompt = buildUserPrompt(question, items);
+        PromptContent content = buildUserPrompt(question, items);
+        String userPrompt = content.text();
+        // Only what actually fit in the prompt: listing items the size cap cut off would claim sources the answer never saw.
+        List<String> sources = content.sources();
         try {
             AiResult result = aiProviderChain.callWithDetails(SYSTEM_PROMPT, userPrompt);
             return RagAnswerResponse.builder()
@@ -208,22 +210,25 @@ public class RagAnswerService {
         return new ContextItem(source, truncate(source + ": " + hit.getText(), MAX_ITEM_CHARS));
     }
 
-    private String buildUserPrompt(String question, List<ContextItem> items) {
+    private PromptContent buildUserPrompt(String question, List<ContextItem> items) {
         StringBuilder prompt = new StringBuilder("Runner's question:\n")
                 .append(question.strip())
                 .append("\n\nData from the runner's own history (most recent analyses first):\n");
+        List<String> included = new ArrayList<>();
         for (ContextItem item : items) {
             String block = "\n--- " + item.source() + " ---\n" + item.text() + "\n";
             if (prompt.length() + block.length() > MAX_CONTEXT_CHARS) {
                 int room = MAX_CONTEXT_CHARS - prompt.length();
                 if (room > 200) {
                     prompt.append(block, 0, room).append("…\n");
+                    included.add(item.source());
                 }
                 break;
             }
             prompt.append(block);
+            included.add(item.source());
         }
-        return prompt.toString();
+        return new PromptContent(prompt.toString(), List.copyOf(included));
     }
 
     private static void appendLine(StringBuilder sb, String label, Object value) {
@@ -282,5 +287,8 @@ public class RagAnswerService {
     }
 
     private record ContextItem(String source, String text) {
+    }
+
+    private record PromptContent(String text, List<String> sources) {
     }
 }

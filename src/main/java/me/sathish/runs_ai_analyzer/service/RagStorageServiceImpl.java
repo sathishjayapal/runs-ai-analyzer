@@ -212,7 +212,8 @@ public class RagStorageServiceImpl implements RagStorageService {
     @Override
     public List<RunAnalysisDocument> getRecentAnalyses(int limit) {
         if (limit <= 10) {
-            return documentRepository.findTop10ByOrderByCreatedAtDesc();
+            // The query always returns 10; honor a smaller limit (it used to be ignored, so asking for 1 gave 10).
+            return documentRepository.findTop10ByOrderByCreatedAtDesc().stream().limit(Math.max(limit, 0)).toList();
         }
         return documentRepository.findByCreatedAtAfterOrderByCreatedAtDesc(
                 LocalDateTime.now().minusDays(30)
